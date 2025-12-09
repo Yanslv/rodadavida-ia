@@ -1,18 +1,28 @@
 import React, { useState } from 'react';
-import { CATEGORIES } from '../types';
+import { CATEGORIES, AnalysisRecord } from '../types';
 import { analyzeWheelOfLife } from '../services/geminiService';
-import { Loader2, Copy, Check, Sparkles, X } from 'lucide-react';
+import { Loader2, Copy, Check, Sparkles, X, Download } from 'lucide-react';
 
 interface AnalysisModalProps {
   isOpen: boolean;
   onClose: () => void;
   scores: Record<string, number>;
   notes: string;
+  onAnalysisComplete: (result: string) => AnalysisRecord; // Callback to parent to save history
+  onExportPDF: (record: AnalysisRecord) => void;
 }
 
-const AnalysisModal: React.FC<AnalysisModalProps> = ({ isOpen, onClose, scores, notes }) => {
+const AnalysisModal: React.FC<AnalysisModalProps> = ({ 
+  isOpen, 
+  onClose, 
+  scores, 
+  notes, 
+  onAnalysisComplete,
+  onExportPDF
+}) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
+  const [currentRecord, setCurrentRecord] = useState<AnalysisRecord | null>(null);
   const [copied, setCopied] = useState(false);
 
   if (!isOpen) return null;
@@ -49,6 +59,9 @@ Me diz:
     try {
       const result = await analyzeWheelOfLife(promptText);
       setAnalysisResult(result);
+      // Automatically save to history via parent callback
+      const newRecord = onAnalysisComplete(result);
+      setCurrentRecord(newRecord);
     } catch (error) {
       setAnalysisResult("Ocorreu um erro ao conectar com a IA. Por favor, copie o prompt e use no ChatGPT ou Claude.");
     } finally {
@@ -97,12 +110,25 @@ Me diz:
               <div className="prose prose-indigo max-w-none text-sm sm:text-base">
                 {renderAnalysis(analysisResult)}
               </div>
-              <button 
-                onClick={() => setAnalysisResult(null)}
-                className="mt-6 text-indigo-600 text-sm font-medium hover:underline"
-              >
-                Refazer análise
-              </button>
+              
+              <div className="flex gap-3 mt-8">
+                 <button 
+                  onClick={() => currentRecord && onExportPDF(currentRecord)}
+                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"
+                >
+                  <Download className="w-4 h-4" />
+                  Exportar PDF
+                </button>
+                 <button 
+                  onClick={() => {
+                      setAnalysisResult(null);
+                      setCurrentRecord(null);
+                  }}
+                  className="text-indigo-600 px-4 py-2 text-sm font-medium hover:underline"
+                >
+                  Refazer
+                </button>
+              </div>
             </div>
           ) : (
             <>

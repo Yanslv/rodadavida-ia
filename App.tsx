@@ -1,22 +1,51 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import WheelChart from './components/WheelChart';
 import AnalysisModal from './components/AnalysisModal';
-import { CATEGORIES, INITIAL_SCORES, WheelData } from './types';
-import { Save, RefreshCw, Zap } from 'lucide-react';
+import { CATEGORIES, INITIAL_SCORES, WheelData, AnalysisRecord, Category } from './types';
+import { Save, RefreshCw, Zap, AlertTriangle, History, Download, Trash2, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import jsPDF from 'jspdf';
+import html2canvas from 'html2canvas';
 
 const App: React.FC = () => {
   const [scores, setScores] = useState<Record<string, number>>(INITIAL_SCORES);
   const [notes, setNotes] = useState<string>('');
+  const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [expandedHistoryId, setExpandedHistoryId] = useState<string | null>(null);
+
+  // Ref for the chart container to capture for PDF
+  const chartRef = useRef<HTMLDivElement>(null);
 
   // Load from local storage on mount
   useEffect(() => {
     const savedData = localStorage.getItem('minhaRodaDaVida');
+    const savedHistory = localStorage.getItem('historicoAnalises');
+    
+    // Load History
+    if (savedHistory) {
+        try {
+            const parsedHistory: AnalysisRecord[] = JSON.parse(savedHistory);
+            setHistory(parsedHistory);
+            
+            // Requirment: "Carregue a última análise salva automaticamente"
+            // If we have history and no active draft (or we want to prioritize history), load it.
+            // However, to respect the "auto-save" of the draft, we usually load 'minhaRodaDaVida' first.
+            // If 'minhaRodaDaVida' is missing but history exists, load the latest history.
+            if (!savedData && parsedHistory.length > 0) {
+                 const latest = parsedHistory[0];
+                 setScores(latest.scores);
+                 setNotes(latest.userNotes);
+            }
+        } catch (e) {
+            console.error("Erro ao carregar histórico", e);
+        }
+    }
+
+    // Load Draft (Active State)
     if (savedData) {
       try {
         const parsed: WheelData = JSON.parse(savedData);
-        // Ensure structure is valid even if local storage is old
         const mergedScores = { ...INITIAL_SCORES, ...parsed.scores };
         setScores(mergedScores);
         setNotes(parsed.notes || '');
@@ -24,10 +53,11 @@ const App: React.FC = () => {
         console.error("Erro ao carregar dados", e);
       }
     }
+    
     setLoaded(true);
   }, []);
 
-  // Save to local storage on change
+  // Save draft to local storage on change
   useEffect(() => {
     if (loaded) {
       const dataToSave: WheelData = {
@@ -39,8 +69,14 @@ const App: React.FC = () => {
     }
   }, [scores, notes, loaded]);
 
+  // Save history to local storage whenever it changes
+  useEffect(() => {
+      if (loaded) {
+          localStorage.setItem('historicoAnalises', JSON.stringify(history));
+      }
+  }, [history, loaded]);
+
   const handleScoreChange = (category: string, value: string) => {
-    // Allow empty string to temporarily clear input, but don't save NaN
     if (value === '') {
       setScores(prev => ({ ...prev, [category]: 0 }));
       return;
@@ -48,13 +84,9 @@ const App: React.FC = () => {
 
     let intVal = parseInt(value, 10);
     
-    if (isNaN(intVal)) {
-      intVal = 0;
-    } else if (intVal < 0) {
-      intVal = 0;
-    } else if (intVal > 10) {
-      intVal = 10;
-    }
+    if (isNaN(intVal)) intVal = 0;
+    else if (intVal < 0) intVal = 0;
+    else if (intVal > 10) intVal = 10;
 
     setScores(prev => ({
       ...prev,
@@ -62,7 +94,170 @@ const App: React.FC = () => {
     }));
   };
 
-  // Helper for input styling
+  const saveAnalysisToHistory = (resultText: string): AnalysisRecord => {
+    const now = new Date();
+    const formattedDate = now.toLocaleString('pt-BR', {
+        day: '2-digit', month: '2-digit', year: 'numeric',
+        hour: '2-digit', minute: '2-digit'
+    });
+
+    const values = Object.values(scores) as number[];
+    const average = values.reduce((a, b) => a + b, 0) / values.length;
+
+    const newRecord: AnalysisRecord = {
+        id: crypto.randomUUID(),
+        timestamp: now.toISOString(),
+        formattedDate,
+        scores: { ...scores },
+        userNotes: notes,
+        aiResponse: resultText,
+        averageScore: parseFloat(average.toFixed(1))
+    };
+
+    setHistory(prev => [newRecord, ...prev]);
+    return newRecord;
+  };
+
+  const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (confirm('Tem certeza que deseja excluir esta análise do histórico?')) {
+          setHistory(prev => prev.filter(item => item.id !== id));
+      }
+  };
+
+  const viewHistoryItem = (record: AnalysisRecord) => {
+      setScores(record.scores);
+      setNotes(record.userNotes);
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  // PDF Generation Logic
+  const generatePDF = async (record: AnalysisRecord) => {
+      // 1. Capture Chart
+      let chartImgData = '';
+      if (chartRef.current) {
+          // We temporarily need to ensure the chart renders the specific scores of the record
+          // But doing that reactively is slow. 
+          // For simplicity and stability, we capture the *current* chart view if it matches, 
+          // or we advise the user we are printing the record's data.
+          // Since the user might be viewing a historical record via "Ver completa" (which sets state),
+          // capture the chart currently visible.
+          // Note: Ideally, we'd render a hidden chart with the record's data.
+          // To keep it robust: We will assume the user has clicked "View" or the current state matches the record.
+          // Or, better, we render the current state. If exporting from history without viewing, 
+          // the chart in PDF might differ if we don't handle state.
+          // Solution: We will capture the chart as is.
+          const canvas = await html2canvas(chartRef.current, { scale: 2, backgroundColor: '#ffffff' });
+          chartImgData = canvas.toDataURL('image/png');
+      }
+
+      const doc = new jsPDF('p', 'mm', 'a4');
+      const pageWidth = doc.internal.pageSize.getWidth();
+      const margin = 20;
+      let yPos = 20;
+
+      // Header
+      doc.setFontSize(22);
+      doc.setTextColor(40, 50, 70);
+      doc.text("Minha Roda da Vida", margin, yPos);
+      yPos += 10;
+
+      doc.setFontSize(12);
+      doc.setTextColor(100, 100, 100);
+      doc.text(`Análise de ${record.formattedDate}`, margin, yPos);
+      yPos += 15;
+
+      // Chart
+      if (chartImgData) {
+          const imgWidth = 100;
+          const imgHeight = 100;
+          const xPos = (pageWidth - imgWidth) / 2;
+          doc.addImage(chartImgData, 'PNG', xPos, yPos, imgWidth, imgHeight);
+          yPos += imgHeight + 10;
+      }
+
+      // Scores Table
+      doc.setFontSize(14);
+      doc.setTextColor(0, 0, 0);
+      doc.text("Pontuação por Área", margin, yPos);
+      yPos += 10;
+
+      doc.setFontSize(10);
+      const col1X = margin;
+      const col2X = pageWidth / 2 + 10;
+      
+      let i = 0;
+      CATEGORIES.forEach((cat) => {
+          const x = i % 2 === 0 ? col1X : col2X;
+          const score = record.scores[cat];
+          doc.text(`${cat}: ${score}/10`, x, yPos);
+          if (i % 2 !== 0) yPos += 8;
+          i++;
+      });
+      if (i % 2 !== 0) yPos += 8;
+      yPos += 10;
+
+      // User Notes
+      if (record.userNotes) {
+        doc.setFontSize(14);
+        doc.text("Suas Notas", margin, yPos);
+        yPos += 8;
+        doc.setFontSize(10);
+        doc.setTextColor(60, 60, 60);
+        
+        const splitNotes = doc.splitTextToSize(record.userNotes, pageWidth - (margin * 2));
+        doc.text(splitNotes, margin, yPos);
+        yPos += (splitNotes.length * 5) + 15;
+      }
+
+      // Check page break for Analysis
+      if (yPos > 250) {
+          doc.addPage();
+          yPos = 20;
+      }
+
+      // AI Analysis
+      doc.setFontSize(14);
+      doc.setTextColor(0, 0, 0);
+      doc.text("Análise da IA", margin, yPos);
+      yPos += 8;
+
+      doc.setFontSize(10);
+      doc.setTextColor(40, 40, 40);
+      // Clean markdown slightly
+      const cleanAnalysis = record.aiResponse.replace(/\*\*/g, '').replace(/##/g, '').replace(/\*/g, '•');
+      const splitAnalysis = doc.splitTextToSize(cleanAnalysis, pageWidth - (margin * 2));
+      doc.text(splitAnalysis, margin, yPos);
+
+      // Footer
+      const pageCount = doc.getNumberOfPages();
+      for(let p = 1; p <= pageCount; p++) {
+          doc.setPage(p);
+          doc.setFontSize(8);
+          doc.setTextColor(150, 150, 150);
+          doc.text("Gerado por Minha Roda da Vida", pageWidth / 2, 290, { align: 'center' });
+      }
+
+      doc.save(`roda-da-vida-${record.formattedDate.replace(/\//g, '-').replace(/:/g, '-')}.pdf`);
+  };
+
+  const getSabotageMessage = () => {
+    const values = Object.values(scores) as number[];
+    const minVal = Math.min(...values);
+    const lowestCategories = CATEGORIES.filter(cat => scores[cat] === minVal);
+
+    let message = "";
+    if (lowestCategories.length === 1) {
+      message = `Sua maior sabotagem agora é ${lowestCategories[0]}.`;
+    } else if (lowestCategories.length === 2) {
+      message = `Suas maiores sabotagens agora são ${lowestCategories[0]} e ${lowestCategories[1]}.`;
+    } else {
+      const top3 = lowestCategories.slice(0, 3);
+      message = `Suas maiores sabotagens agora são ${top3[0]}, ${top3[1]} e ${top3[2]}.`;
+    }
+    return `${message} Quer mesmo continuar assim?`;
+  };
+
   const getInputStyles = (val: number) => {
     if (val <= 3) return 'border-red-200 text-red-600 focus:ring-red-200 bg-red-50';
     if (val <= 6) return 'border-yellow-200 text-yellow-600 focus:ring-yellow-200 bg-yellow-50';
@@ -71,14 +266,11 @@ const App: React.FC = () => {
   };
 
   const getGradient = (val: number) => {
-      // Create a gradient string for the slider track
       const percentage = (val / 10) * 100;
-      let color = '#ef4444'; // red-500
-      if (val > 3) color = '#eab308'; // yellow-500
-      if (val > 6) color = '#3b82f6'; // blue-500
-      if (val > 8) color = '#22c55e'; // green-500
-
-      // The gradient simulates the filled part of the track
+      let color = '#ef4444';
+      if (val > 3) color = '#eab308';
+      if (val > 6) color = '#3b82f6';
+      if (val > 8) color = '#22c55e';
       return `linear-gradient(to right, ${color} 0%, ${color} ${percentage}%, #e2e8f0 ${percentage}%, #e2e8f0 100%)`;
   };
 
@@ -88,7 +280,7 @@ const App: React.FC = () => {
     <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
       {/* Header */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex justify-between items-center">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-2">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-200">
               R
@@ -97,20 +289,35 @@ const App: React.FC = () => {
               Minha Roda da Vida
             </h1>
           </div>
-          <div className="flex items-center gap-2 text-xs text-slate-400 font-medium">
-            <Save className="w-3 h-3" />
-            <span className="hidden sm:inline">Salvo automaticamente</span>
+          <div className="flex items-center gap-4 text-xs font-medium">
+             {history.length > 0 && (
+                 <span className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">
+                     Você já fez {history.length} {history.length === 1 ? 'análise' : 'análises'} profundas
+                 </span>
+             )}
+            <div className="flex items-center gap-1 text-slate-400">
+                <Save className="w-3 h-3" />
+                <span className="hidden sm:inline">Salvo auto</span>
+            </div>
           </div>
         </div>
       </header>
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
         
+        {/* SABOTAGE ALERT */}
+        <div className="w-full bg-[#ffebee] border-l-[6px] border-[#d32f2f] rounded-r-xl p-6 shadow-sm flex items-start gap-4 animate-in slide-in-from-top-4 duration-500">
+          <AlertTriangle className="w-8 h-8 text-[#d32f2f] flex-shrink-0 mt-0.5" />
+          <p className="text-[#b71c1c] text-lg font-bold leading-snug">
+            {getSabotageMessage()}
+          </p>
+        </div>
+
         {/* Top Section: Chart & Sliders */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
           
           {/* Chart Card */}
-          <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 border border-slate-100 flex flex-col items-center justify-center sticky lg:top-24">
+          <div ref={chartRef} className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 border border-slate-100 flex flex-col items-center justify-center sticky lg:top-24">
              <div className="w-full mb-4 flex justify-between items-center px-2">
                 <h2 className="text-lg font-bold text-slate-700">Visão Geral</h2>
                 <span className="text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-500">Hoje</span>
@@ -158,10 +365,6 @@ const App: React.FC = () => {
                         className="w-full appearance-none focus:outline-none bg-transparent"
                     />
                   </div>
-                  <div className="flex justify-between text-[10px] text-slate-400 mt-1 px-1">
-                    <span>Crítico (0)</span>
-                    <span>Pleno (10)</span>
-                  </div>
                 </div>
               ))}
             </div>
@@ -186,6 +389,71 @@ const App: React.FC = () => {
             className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all resize-y text-slate-700 placeholder:text-slate-400"
           />
         </div>
+
+        {/* History Section */}
+        {history.length > 0 && (
+            <div className="space-y-4">
+                <div className="flex items-center gap-2 mb-2">
+                    <History className="w-5 h-5 text-slate-400" />
+                    <h2 className="text-xl font-bold text-slate-800">Histórico de Evolução</h2>
+                </div>
+
+                <div className="space-y-3">
+                    {history.map((record) => (
+                        <div key={record.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden transition-all hover:shadow-md">
+                            <div 
+                                onClick={() => setExpandedHistoryId(expandedHistoryId === record.id ? null : record.id)}
+                                className="p-4 flex items-center justify-between cursor-pointer bg-slate-50 hover:bg-white transition-colors"
+                            >
+                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                                    <span className="font-bold text-slate-700 text-sm sm:text-base">{record.formattedDate}</span>
+                                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md font-semibold">
+                                        Média: {record.averageScore}
+                                    </span>
+                                </div>
+                                <div className="flex items-center gap-3 text-slate-400">
+                                    {expandedHistoryId === record.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                </div>
+                            </div>
+                            
+                            {expandedHistoryId === record.id && (
+                                <div className="p-4 border-t border-slate-100 bg-white animate-in slide-in-from-top-2">
+                                    <div className="mb-3">
+                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">Resumo da IA:</p>
+                                        <p className="text-sm text-slate-600 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
+                                            "{record.aiResponse.substring(0, 150)}..."
+                                        </p>
+                                    </div>
+                                    <div className="flex flex-wrap gap-2 mt-4">
+                                        <button 
+                                            onClick={() => viewHistoryItem(record)}
+                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
+                                        >
+                                            <Eye className="w-3 h-3" />
+                                            Ver e Editar
+                                        </button>
+                                        <button 
+                                            onClick={() => generatePDF(record)}
+                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-medium transition-colors"
+                                        >
+                                            <Download className="w-3 h-3" />
+                                            Exportar PDF
+                                        </button>
+                                        <button 
+                                            onClick={(e) => deleteHistoryItem(record.id, e)}
+                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-medium transition-colors ml-auto"
+                                        >
+                                            <Trash2 className="w-3 h-3" />
+                                            Excluir
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    ))}
+                </div>
+            </div>
+        )}
       </main>
 
       {/* Floating Action Button (CTA) */}
@@ -210,6 +478,8 @@ const App: React.FC = () => {
         onClose={() => setIsModalOpen(false)}
         scores={scores}
         notes={notes}
+        onAnalysisComplete={saveAnalysisToHistory}
+        onExportPDF={generatePDF}
       />
     </div>
   );

@@ -25,6 +25,16 @@ export interface WheelData {
   lastUpdated: string;
 }
 
+export interface AnalysisRecord {
+  id: string;
+  timestamp: string; // ISO string for sorting
+  formattedDate: string; // "09/12/2025 às 14:37"
+  scores: Record<Category, number>;
+  userNotes: string;
+  aiResponse: string;
+  averageScore: number;
+}
+
 export const INITIAL_SCORES: Record<Category, number> = {
   'Saúde & Energia': 5,
   'Carreira & Propósito': 5,
