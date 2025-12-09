@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import WheelChart from './components/WheelChart';
 import AnalysisModal from './components/AnalysisModal';
-import { CATEGORIES, INITIAL_SCORES, WheelData, AnalysisRecord, Category } from './types';
+import { CATEGORIES, INITIAL_SCORES, WheelData, AnalysisRecord, Category, SmartGoal } from './types';
 import { Save, RefreshCw, Zap, AlertTriangle, History, Download, Trash2, ChevronDown, ChevronUp, Eye } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
@@ -29,9 +30,6 @@ const App: React.FC = () => {
             setHistory(parsedHistory);
             
             // Requirment: "Carregue a última análise salva automaticamente"
-            // If we have history and no active draft (or we want to prioritize history), load it.
-            // However, to respect the "auto-save" of the draft, we usually load 'minhaRodaDaVida' first.
-            // If 'minhaRodaDaVida' is missing but history exists, load the latest history.
             if (!savedData && parsedHistory.length > 0) {
                  const latest = parsedHistory[0];
                  setScores(latest.scores);
@@ -118,6 +116,15 @@ const App: React.FC = () => {
     return newRecord;
   };
 
+  const updateHistoryRecord = (id: string, updates: Partial<AnalysisRecord>) => {
+    setHistory(prev => prev.map(item => {
+      if (item.id === id) {
+        return { ...item, ...updates };
+      }
+      return item;
+    }));
+  };
+
   const deleteHistoryItem = (id: string, e: React.MouseEvent) => {
       e.stopPropagation();
       if (confirm('Tem certeza que deseja excluir esta análise do histórico?')) {
@@ -136,17 +143,6 @@ const App: React.FC = () => {
       // 1. Capture Chart
       let chartImgData = '';
       if (chartRef.current) {
-          // We temporarily need to ensure the chart renders the specific scores of the record
-          // But doing that reactively is slow. 
-          // For simplicity and stability, we capture the *current* chart view if it matches, 
-          // or we advise the user we are printing the record's data.
-          // Since the user might be viewing a historical record via "Ver completa" (which sets state),
-          // capture the chart currently visible.
-          // Note: Ideally, we'd render a hidden chart with the record's data.
-          // To keep it robust: We will assume the user has clicked "View" or the current state matches the record.
-          // Or, better, we render the current state. If exporting from history without viewing, 
-          // the chart in PDF might differ if we don't handle state.
-          // Solution: We will capture the chart as is.
           const canvas = await html2canvas(chartRef.current, { scale: 2, backgroundColor: '#ffffff' });
           chartImgData = canvas.toDataURL('image/png');
       }
@@ -228,6 +224,35 @@ const App: React.FC = () => {
       const cleanAnalysis = record.aiResponse.replace(/\*\*/g, '').replace(/##/g, '').replace(/\*/g, '•');
       const splitAnalysis = doc.splitTextToSize(cleanAnalysis, pageWidth - (margin * 2));
       doc.text(splitAnalysis, margin, yPos);
+      yPos += (splitAnalysis.length * 5) + 15;
+
+      // SMART Goals (New Section)
+      if (record.smartGoals && record.smartGoals.length > 0) {
+          if (yPos > 240) { doc.addPage(); yPos = 20; }
+          
+          doc.setFontSize(14);
+          doc.setTextColor(0, 0, 0);
+          doc.text("Metas SMART Prioritárias", margin, yPos);
+          yPos += 10;
+
+          record.smartGoals.forEach(sg => {
+              // Check space
+              if (yPos > 270) { doc.addPage(); yPos = 20; }
+              
+              doc.setFontSize(11);
+              doc.setTextColor(79, 70, 229); // Indigo color for area
+              doc.setFont("helvetica", "bold");
+              doc.text(sg.area, margin, yPos);
+              yPos += 5;
+              
+              doc.setFontSize(10);
+              doc.setTextColor(60, 60, 60);
+              doc.setFont("helvetica", "normal");
+              const splitGoal = doc.splitTextToSize(sg.goal, pageWidth - (margin * 2));
+              doc.text(splitGoal, margin, yPos);
+              yPos += (splitGoal.length * 5) + 6;
+          });
+      }
 
       // Footer
       const pageCount = doc.getNumberOfPages();
@@ -423,6 +448,12 @@ const App: React.FC = () => {
                                         <p className="text-sm text-slate-600 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
                                             "{record.aiResponse.substring(0, 150)}..."
                                         </p>
+                                        {record.smartGoals && record.smartGoals.length > 0 && (
+                                            <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
+                                                <Zap className="w-3 h-3" />
+                                                Contém {record.smartGoals.length} Metas SMART
+                                            </p>
+                                        )}
                                     </div>
                                     <div className="flex flex-wrap gap-2 mt-4">
                                         <button 
@@ -480,6 +511,7 @@ const App: React.FC = () => {
         notes={notes}
         onAnalysisComplete={saveAnalysisToHistory}
         onExportPDF={generatePDF}
+        onUpdateRecord={updateHistoryRecord}
       />
     </div>
   );

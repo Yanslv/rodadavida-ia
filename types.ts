@@ -1,3 +1,4 @@
+
 export type Category = 
   | 'Saúde & Energia'
   | 'Carreira & Propósito'
@@ -33,6 +34,12 @@ export interface AnalysisRecord {
   userNotes: string;
   aiResponse: string;
   averageScore: number;
+  smartGoals?: SmartGoal[];
+}
+
+export interface SmartGoal {
+  area: string;
+  goal: string;
 }
 
 export const INITIAL_SCORES: Record<Category, number> = {

@@ -1,7 +1,8 @@
+
 import React, { useState } from 'react';
-import { CATEGORIES, AnalysisRecord } from '../types';
-import { analyzeWheelOfLife } from '../services/geminiService';
-import { Loader2, Copy, Check, Sparkles, X, Download } from 'lucide-react';
+import { CATEGORIES, AnalysisRecord, SmartGoal } from '../types';
+import { analyzeWheelOfLife, generateSmartGoals } from '../services/geminiService';
+import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight } from 'lucide-react';
 
 interface AnalysisModalProps {
   isOpen: boolean;
@@ -10,6 +11,7 @@ interface AnalysisModalProps {
   notes: string;
   onAnalysisComplete: (result: string) => AnalysisRecord; // Callback to parent to save history
   onExportPDF: (record: AnalysisRecord) => void;
+  onUpdateRecord: (id: string, updates: Partial<AnalysisRecord>) => void;
 }
 
 const AnalysisModal: React.FC<AnalysisModalProps> = ({ 
@@ -18,12 +20,18 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
   scores, 
   notes, 
   onAnalysisComplete,
-  onExportPDF
+  onExportPDF,
+  onUpdateRecord
 }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [currentRecord, setCurrentRecord] = useState<AnalysisRecord | null>(null);
   const [copied, setCopied] = useState(false);
+  
+  // SMART Goals State
+  const [isGeneratingSmart, setIsGeneratingSmart] = useState(false);
+  const [smartGoals, setSmartGoals] = useState<SmartGoal[] | null>(null);
+  const [copiedGoalIndex, setCopiedGoalIndex] = useState<number | null>(null);
 
   if (!isOpen) return null;
 
@@ -54,8 +62,16 @@ Me diz:
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const handleCopyGoal = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedGoalIndex(index);
+    setTimeout(() => setCopiedGoalIndex(null), 2000);
+  };
+
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
+    // Reset previous smart goals if any
+    setSmartGoals(null); 
     try {
       const result = await analyzeWheelOfLife(promptText);
       setAnalysisResult(result);
@@ -66,6 +82,27 @@ Me diz:
       setAnalysisResult("Ocorreu um erro ao conectar com a IA. Por favor, copie o prompt e use no ChatGPT ou Claude.");
     } finally {
       setIsAnalyzing(false);
+    }
+  };
+
+  const handleSmartGoals = async () => {
+    setIsGeneratingSmart(true);
+    try {
+      const goals = await generateSmartGoals(scores, notes);
+      setSmartGoals(goals);
+      
+      // Save goals to history
+      if (currentRecord) {
+        onUpdateRecord(currentRecord.id, { smartGoals: goals });
+        // Update local record state so PDF export catches it immediately
+        setCurrentRecord(prev => prev ? ({ ...prev, smartGoals: goals }) : null);
+      }
+
+    } catch (error) {
+      console.error(error);
+      alert("Erro ao gerar metas. Tente novamente.");
+    } finally {
+      setIsGeneratingSmart(false);
     }
   };
 
@@ -105,16 +142,70 @@ Me diz:
           
           {/* Result Area */}
           {analysisResult ? (
-            <div className="bg-indigo-50/50 rounded-xl p-6 border border-indigo-100">
-              <h3 className="text-lg font-semibold text-indigo-900 mb-4">Análise da IA:</h3>
-              <div className="prose prose-indigo max-w-none text-sm sm:text-base">
-                {renderAnalysis(analysisResult)}
+            <div className="space-y-6">
+              <div className="bg-indigo-50/50 rounded-xl p-6 border border-indigo-100">
+                <h3 className="text-lg font-semibold text-indigo-900 mb-4">Análise da IA:</h3>
+                <div className="prose prose-indigo max-w-none text-sm sm:text-base">
+                  {renderAnalysis(analysisResult)}
+                </div>
               </div>
+
+              {/* SMART Goals Section */}
+              {!smartGoals ? (
+                <button
+                  onClick={handleSmartGoals}
+                  disabled={isGeneratingSmart}
+                  className="w-full py-4 bg-slate-900 text-white rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group"
+                >
+                  {isGeneratingSmart ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin text-yellow-400" />
+                      <span className="font-semibold">Criando estratégia...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Target className="w-6 h-6 text-yellow-400" />
+                      <span className="font-bold text-lg">Gerar minhas Metas SMART agora</span>
+                      <ArrowRight className="w-5 h-5 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all text-slate-400" />
+                    </>
+                  )}
+                </button>
+              ) : (
+                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Target className="w-5 h-5 text-indigo-600" />
+                    <h3 className="text-lg font-bold text-slate-800">Suas Metas SMART Prioritárias</h3>
+                  </div>
+                  
+                  <div className="grid gap-4">
+                    {smartGoals.map((item, idx) => (
+                      <div key={idx} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow relative group">
+                         <div className="flex justify-between items-start mb-2">
+                            <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded uppercase tracking-wider">
+                              {item.area}
+                            </span>
+                            <button 
+                              onClick={() => handleCopyGoal(item.goal, idx)}
+                              className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+                              title="Copiar meta"
+                            >
+                               {copiedGoalIndex === idx ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                            </button>
+                         </div>
+                         <p className="text-slate-700 font-medium leading-relaxed">
+                           {item.goal}
+                         </p>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
               
-              <div className="flex gap-3 mt-8">
+              {/* Footer Buttons */}
+              <div className="flex gap-3 pt-4 border-t border-slate-100">
                  <button 
                   onClick={() => currentRecord && onExportPDF(currentRecord)}
-                  className="flex-1 bg-indigo-600 hover:bg-indigo-700 text-white px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2 shadow-sm"
+                  className="flex-1 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
                 >
                   <Download className="w-4 h-4" />
                   Exportar PDF
@@ -123,10 +214,11 @@ Me diz:
                   onClick={() => {
                       setAnalysisResult(null);
                       setCurrentRecord(null);
+                      setSmartGoals(null);
                   }}
                   className="text-indigo-600 px-4 py-2 text-sm font-medium hover:underline"
                 >
-                  Refazer
+                  Refazer Análise
                 </button>
               </div>
             </div>
@@ -154,7 +246,7 @@ Me diz:
           )}
         </div>
 
-        {/* Footer Actions */}
+        {/* Footer Actions (Only shown before analysis) */}
         {!analysisResult && (
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row gap-3">
             <button
