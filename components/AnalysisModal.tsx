@@ -1,6 +1,6 @@
 
 import React, { useState } from 'react';
-import { CATEGORIES, AnalysisRecord, SmartGoal } from '../types';
+import { AnalysisRecord, SmartGoal } from '../types';
 import { analyzeWheelOfLife, generateSmartGoals } from '../services/geminiService';
 import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight } from 'lucide-react';
 
@@ -9,6 +9,7 @@ interface AnalysisModalProps {
   onClose: () => void;
   scores: Record<string, number>;
   notes: string;
+  categories: string[];
   onAnalysisComplete: (result: string) => AnalysisRecord; // Callback to parent to save history
   onExportPDF: (record: AnalysisRecord) => void;
   onUpdateRecord: (id: string, updates: Partial<AnalysisRecord>) => void;
@@ -18,7 +19,8 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
   isOpen, 
   onClose, 
   scores, 
-  notes, 
+  notes,
+  categories,
   onAnalysisComplete,
   onExportPDF,
   onUpdateRecord
@@ -37,7 +39,7 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
 
   const generatePrompt = () => {
     let scoreText = '';
-    CATEGORIES.forEach(cat => {
+    categories.forEach(cat => {
       scoreText += `${cat}: ${scores[cat]}/10\n`;
     });
 

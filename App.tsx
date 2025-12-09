@@ -2,14 +2,28 @@
 import React, { useState, useEffect, useRef } from 'react';
 import WheelChart from './components/WheelChart';
 import AnalysisModal from './components/AnalysisModal';
-import { CATEGORIES, INITIAL_SCORES, WheelData, AnalysisRecord, Category, SmartGoal } from './types';
-import { Save, RefreshCw, Zap, AlertTriangle, History, Download, Trash2, ChevronDown, ChevronUp, Eye } from 'lucide-react';
+import { CATEGORIES, INITIAL_SCORES, WheelData, AnalysisRecord, CustomWheelData, SmartGoal } from './types';
+import { Save, RefreshCw, Zap, AlertTriangle, History, Download, Trash2, ChevronDown, ChevronUp, Eye, Settings, ArrowRight, PlusCircle } from 'lucide-react';
 import jsPDF from 'jspdf';
 import html2canvas from 'html2canvas';
 
 const App: React.FC = () => {
+  const [mode, setMode] = useState<'standard' | 'custom'>('standard');
+  
+  // Standard Data
   const [scores, setScores] = useState<Record<string, number>>(INITIAL_SCORES);
   const [notes, setNotes] = useState<string>('');
+  
+  // Custom Data
+  const [customData, setCustomData] = useState<CustomWheelData | null>(null);
+  
+  // Custom Setup State
+  const [isSettingUpCustom, setIsSettingUpCustom] = useState(false);
+  const [customStep, setCustomStep] = useState(1);
+  const [customAreaCount, setCustomAreaCount] = useState<number>(4);
+  const [customAreaNames, setCustomAreaNames] = useState<string[]>([]);
+  
+  // Common State
   const [history, setHistory] = useState<AnalysisRecord[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [loaded, setLoaded] = useState(false);
@@ -21,6 +35,7 @@ const App: React.FC = () => {
   // Load from local storage on mount
   useEffect(() => {
     const savedData = localStorage.getItem('minhaRodaDaVida');
+    const savedCustomData = localStorage.getItem('roda_custom');
     const savedHistory = localStorage.getItem('historicoAnalises');
     
     // Load History
@@ -29,35 +44,45 @@ const App: React.FC = () => {
             const parsedHistory: AnalysisRecord[] = JSON.parse(savedHistory);
             setHistory(parsedHistory);
             
-            // Requirment: "Carregue a última análise salva automaticamente"
-            if (!savedData && parsedHistory.length > 0) {
+            // Auto-load latest session
+            if (!savedData && !savedCustomData && parsedHistory.length > 0) {
                  const latest = parsedHistory[0];
-                 setScores(latest.scores);
-                 setNotes(latest.userNotes);
+                 if (latest.mode === 'custom' && latest.categories) {
+                    // Try to restore custom view context if possible
+                    setMode('custom');
+                 } else {
+                    setScores(latest.scores);
+                    setNotes(latest.userNotes);
+                 }
             }
         } catch (e) {
             console.error("Erro ao carregar histórico", e);
         }
     }
 
-    // Load Draft (Active State)
+    // Load Standard Draft
     if (savedData) {
       try {
         const parsed: WheelData = JSON.parse(savedData);
-        const mergedScores = { ...INITIAL_SCORES, ...parsed.scores };
-        setScores(mergedScores);
+        setScores({ ...INITIAL_SCORES, ...parsed.scores });
         setNotes(parsed.notes || '');
-      } catch (e) {
-        console.error("Erro ao carregar dados", e);
-      }
+      } catch (e) { console.error(e); }
+    }
+
+    // Load Custom Draft
+    if (savedCustomData) {
+        try {
+            const parsed: CustomWheelData = JSON.parse(savedCustomData);
+            setCustomData(parsed);
+        } catch (e) { console.error(e); }
     }
     
     setLoaded(true);
   }, []);
 
-  // Save draft to local storage on change
+  // Save standard draft
   useEffect(() => {
-    if (loaded) {
+    if (loaded && mode === 'standard') {
       const dataToSave: WheelData = {
         scores,
         notes,
@@ -65,32 +90,97 @@ const App: React.FC = () => {
       };
       localStorage.setItem('minhaRodaDaVida', JSON.stringify(dataToSave));
     }
-  }, [scores, notes, loaded]);
+  }, [scores, notes, loaded, mode]);
 
-  // Save history to local storage whenever it changes
+  // Save custom draft
+  useEffect(() => {
+    if (loaded && customData) {
+        localStorage.setItem('roda_custom', JSON.stringify(customData));
+    }
+  }, [customData, loaded]);
+
+  // Save history
   useEffect(() => {
       if (loaded) {
           localStorage.setItem('historicoAnalises', JSON.stringify(history));
       }
   }, [history, loaded]);
 
+  // Derived Properties for Rendering
+  const activeCategories = mode === 'standard' ? CATEGORIES : (customData?.categories || []);
+  const activeScores = mode === 'standard' ? scores : (customData?.scores || {});
+  const activeNotes = mode === 'standard' ? notes : (customData?.notes || '');
+
   const handleScoreChange = (category: string, value: string) => {
-    if (value === '') {
-      setScores(prev => ({ ...prev, [category]: 0 }));
-      return;
-    }
-
-    let intVal = parseInt(value, 10);
+    const intVal = Math.min(10, Math.max(0, parseInt(value, 10) || 0));
     
-    if (isNaN(intVal)) intVal = 0;
-    else if (intVal < 0) intVal = 0;
-    else if (intVal > 10) intVal = 10;
-
-    setScores(prev => ({
-      ...prev,
-      [category]: intVal
-    }));
+    if (mode === 'standard') {
+        setScores(prev => ({ ...prev, [category]: intVal }));
+    } else if (customData) {
+        setCustomData({
+            ...customData,
+            scores: { ...customData.scores, [category]: intVal }
+        });
+    }
   };
+
+  const handleNotesChange = (val: string) => {
+      if (mode === 'standard') {
+          setNotes(val);
+      } else if (customData) {
+          setCustomData({ ...customData, notes: val });
+      }
+  };
+
+  const handleModeToggle = () => {
+      if (mode === 'standard') {
+          setMode('custom');
+          // If no custom data exists, start setup
+          if (!customData) {
+              setIsSettingUpCustom(true);
+              setCustomStep(1);
+          }
+      } else {
+          setMode('standard');
+          setIsSettingUpCustom(false);
+      }
+  };
+
+  // Custom Setup Logic
+  const handleStartCustomSetup = () => {
+      const initialNames = Array.from({ length: customAreaCount }, (_, i) => `Área ${i + 1}`);
+      setCustomAreaNames(initialNames);
+      setCustomStep(2);
+  };
+
+  const handleFinishCustomSetup = () => {
+      // Validate unique names to avoid key issues
+      const uniqueNames = customAreaNames.map((name, idx) => {
+          const count = customAreaNames.filter((n, i) => i < idx && n === name).length;
+          return count > 0 ? `${name} ${count + 1}` : name;
+      });
+
+      const initialScores: Record<string, number> = {};
+      uniqueNames.forEach(name => initialScores[name] = 5);
+
+      const newCustomData: CustomWheelData = {
+          categories: uniqueNames,
+          scores: initialScores,
+          notes: '',
+          lastUpdated: new Date().toISOString()
+      };
+
+      setCustomData(newCustomData);
+      setIsSettingUpCustom(false);
+  };
+
+  const updateCustomName = (index: number, val: string) => {
+      const newNames = [...customAreaNames];
+      newNames[index] = val;
+      setCustomAreaNames(newNames);
+  };
+
+  // ------------------------------------------
 
   const saveAnalysisToHistory = (resultText: string): AnalysisRecord => {
     const now = new Date();
@@ -99,17 +189,19 @@ const App: React.FC = () => {
         hour: '2-digit', minute: '2-digit'
     });
 
-    const values = Object.values(scores) as number[];
+    const values = Object.values(activeScores) as number[];
     const average = values.reduce((a, b) => a + b, 0) / values.length;
 
     const newRecord: AnalysisRecord = {
         id: crypto.randomUUID(),
         timestamp: now.toISOString(),
         formattedDate,
-        scores: { ...scores },
-        userNotes: notes,
+        scores: { ...activeScores },
+        userNotes: activeNotes,
         aiResponse: resultText,
-        averageScore: parseFloat(average.toFixed(1))
+        averageScore: parseFloat(average.toFixed(1)),
+        mode: mode,
+        categories: activeCategories
     };
 
     setHistory(prev => [newRecord, ...prev]);
@@ -133,14 +225,25 @@ const App: React.FC = () => {
   };
 
   const viewHistoryItem = (record: AnalysisRecord) => {
-      setScores(record.scores);
-      setNotes(record.userNotes);
+      // Logic to view history implies potentially switching modes or just read-only view
+      // For simplicity, we load the data into the current view if types match
+      if (record.mode === 'custom') {
+          setMode('custom');
+          setCustomData({
+              categories: record.categories || Object.keys(record.scores),
+              scores: record.scores,
+              notes: record.userNotes,
+              lastUpdated: record.timestamp
+          });
+      } else {
+          setMode('standard');
+          setScores(record.scores);
+          setNotes(record.userNotes);
+      }
       window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  // PDF Generation Logic
   const generatePDF = async (record: AnalysisRecord) => {
-      // 1. Capture Chart
       let chartImgData = '';
       if (chartRef.current) {
           const canvas = await html2canvas(chartRef.current, { scale: 2, backgroundColor: '#ffffff' });
@@ -152,7 +255,6 @@ const App: React.FC = () => {
       const margin = 20;
       let yPos = 20;
 
-      // Header
       doc.setFontSize(22);
       doc.setTextColor(40, 50, 70);
       doc.text("Minha Roda da Vida", margin, yPos);
@@ -160,10 +262,9 @@ const App: React.FC = () => {
 
       doc.setFontSize(12);
       doc.setTextColor(100, 100, 100);
-      doc.text(`Análise de ${record.formattedDate}`, margin, yPos);
+      doc.text(`Análise de ${record.formattedDate} (${record.mode === 'custom' ? 'Customizada' : 'Padrão'})`, margin, yPos);
       yPos += 15;
 
-      // Chart
       if (chartImgData) {
           const imgWidth = 100;
           const imgHeight = 100;
@@ -172,7 +273,6 @@ const App: React.FC = () => {
           yPos += imgHeight + 10;
       }
 
-      // Scores Table
       doc.setFontSize(14);
       doc.setTextColor(0, 0, 0);
       doc.text("Pontuação por Área", margin, yPos);
@@ -182,8 +282,9 @@ const App: React.FC = () => {
       const col1X = margin;
       const col2X = pageWidth / 2 + 10;
       
+      const catsToPrint = record.categories || Object.keys(record.scores);
       let i = 0;
-      CATEGORIES.forEach((cat) => {
+      catsToPrint.forEach((cat) => {
           const x = i % 2 === 0 ? col1X : col2X;
           const score = record.scores[cat];
           doc.text(`${cat}: ${score}/10`, x, yPos);
@@ -193,26 +294,19 @@ const App: React.FC = () => {
       if (i % 2 !== 0) yPos += 8;
       yPos += 10;
 
-      // User Notes
       if (record.userNotes) {
         doc.setFontSize(14);
         doc.text("Suas Notas", margin, yPos);
         yPos += 8;
         doc.setFontSize(10);
         doc.setTextColor(60, 60, 60);
-        
         const splitNotes = doc.splitTextToSize(record.userNotes, pageWidth - (margin * 2));
         doc.text(splitNotes, margin, yPos);
         yPos += (splitNotes.length * 5) + 15;
       }
 
-      // Check page break for Analysis
-      if (yPos > 250) {
-          doc.addPage();
-          yPos = 20;
-      }
+      if (yPos > 250) { doc.addPage(); yPos = 20; }
 
-      // AI Analysis
       doc.setFontSize(14);
       doc.setTextColor(0, 0, 0);
       doc.text("Análise da IA", margin, yPos);
@@ -220,31 +314,25 @@ const App: React.FC = () => {
 
       doc.setFontSize(10);
       doc.setTextColor(40, 40, 40);
-      // Clean markdown slightly
       const cleanAnalysis = record.aiResponse.replace(/\*\*/g, '').replace(/##/g, '').replace(/\*/g, '•');
       const splitAnalysis = doc.splitTextToSize(cleanAnalysis, pageWidth - (margin * 2));
       doc.text(splitAnalysis, margin, yPos);
       yPos += (splitAnalysis.length * 5) + 15;
 
-      // SMART Goals (New Section)
       if (record.smartGoals && record.smartGoals.length > 0) {
           if (yPos > 240) { doc.addPage(); yPos = 20; }
-          
           doc.setFontSize(14);
           doc.setTextColor(0, 0, 0);
           doc.text("Metas SMART Prioritárias", margin, yPos);
           yPos += 10;
 
           record.smartGoals.forEach(sg => {
-              // Check space
               if (yPos > 270) { doc.addPage(); yPos = 20; }
-              
               doc.setFontSize(11);
-              doc.setTextColor(79, 70, 229); // Indigo color for area
+              doc.setTextColor(79, 70, 229);
               doc.setFont("helvetica", "bold");
               doc.text(sg.area, margin, yPos);
               yPos += 5;
-              
               doc.setFontSize(10);
               doc.setTextColor(60, 60, 60);
               doc.setFont("helvetica", "normal");
@@ -254,7 +342,6 @@ const App: React.FC = () => {
           });
       }
 
-      // Footer
       const pageCount = doc.getNumberOfPages();
       for(let p = 1; p <= pageCount; p++) {
           doc.setPage(p);
@@ -267,9 +354,14 @@ const App: React.FC = () => {
   };
 
   const getSabotageMessage = () => {
-    const values = Object.values(scores) as number[];
+    // If setting up, no message
+    if (mode === 'custom' && isSettingUpCustom) return null;
+
+    const values = Object.values(activeScores) as number[];
+    if (values.length === 0) return null;
+
     const minVal = Math.min(...values);
-    const lowestCategories = CATEGORIES.filter(cat => scores[cat] === minVal);
+    const lowestCategories = activeCategories.filter(cat => activeScores[cat] === minVal);
 
     let message = "";
     if (lowestCategories.length === 1) {
@@ -302,10 +394,10 @@ const App: React.FC = () => {
   if (!loaded) return null;
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24">
-      {/* Header */}
+    <div className="min-h-screen bg-slate-50 text-slate-800 pb-24 font-sans">
+      {/* HEADER */}
       <header className="bg-white border-b border-slate-200 sticky top-0 z-20">
-        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-2">
+        <div className="max-w-5xl mx-auto px-4 py-4 flex flex-col sm:flex-row justify-between items-center gap-4">
           <div className="flex items-center gap-2">
             <div className="w-8 h-8 rounded-lg bg-gradient-to-br from-indigo-500 to-violet-500 flex items-center justify-center text-white font-bold text-lg shadow-lg shadow-indigo-200">
               R
@@ -314,15 +406,23 @@ const App: React.FC = () => {
               Minha Roda da Vida
             </h1>
           </div>
-          <div className="flex items-center gap-4 text-xs font-medium">
-             {history.length > 0 && (
-                 <span className="text-indigo-600 bg-indigo-50 px-2 py-1 rounded-full">
-                     Você já fez {history.length} {history.length === 1 ? 'análise' : 'análises'} profundas
-                 </span>
-             )}
-            <div className="flex items-center gap-1 text-slate-400">
+          
+          <div className="flex items-center gap-4">
+            {/* BUTTON ADDED HERE */}
+            <button 
+                onClick={handleModeToggle}
+                className={`px-4 py-2 rounded-full font-semibold text-sm transition-all duration-300 shadow-md ${
+                    mode === 'custom' 
+                    ? 'bg-slate-100 text-slate-600 hover:bg-slate-200 border border-slate-200' 
+                    : 'bg-emerald-500 text-white hover:bg-emerald-600 hover:shadow-emerald-200'
+                }`}
+            >
+                {mode === 'custom' ? 'Voltar para Roda Padrão' : 'Roda da Vida Customizada'}
+            </button>
+            
+            <div className="flex items-center gap-1 text-slate-400 text-xs hidden sm:flex">
                 <Save className="w-3 h-3" />
-                <span className="hidden sm:inline">Salvo auto</span>
+                <span>Salvo auto</span>
             </div>
           </div>
         </div>
@@ -330,185 +430,289 @@ const App: React.FC = () => {
 
       <main className="max-w-5xl mx-auto px-4 py-8 space-y-8">
         
-        {/* SABOTAGE ALERT */}
-        <div className="w-full bg-[#ffebee] border-l-[6px] border-[#d32f2f] rounded-r-xl p-6 shadow-sm flex items-start gap-4 animate-in slide-in-from-top-4 duration-500">
-          <AlertTriangle className="w-8 h-8 text-[#d32f2f] flex-shrink-0 mt-0.5" />
-          <p className="text-[#b71c1c] text-lg font-bold leading-snug">
-            {getSabotageMessage()}
-          </p>
-        </div>
-
-        {/* Top Section: Chart & Sliders */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
-          
-          {/* Chart Card */}
-          <div ref={chartRef} className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 border border-slate-100 flex flex-col items-center justify-center sticky lg:top-24">
-             <div className="w-full mb-4 flex justify-between items-center px-2">
-                <h2 className="text-lg font-bold text-slate-700">Visão Geral</h2>
-                <span className="text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-500">Hoje</span>
-             </div>
-             <WheelChart scores={scores} />
-             <p className="text-center text-xs text-slate-400 mt-4 max-w-xs">
-                Quanto mais redonda e ampla for sua roda, mais equilibrada está sua vida.
-             </p>
-          </div>
-
-          {/* Sliders Grid */}
-          <div className="space-y-6">
-            <div className="flex items-center gap-2 mb-2">
-                <h2 className="text-xl font-bold text-slate-800">Avalie suas Áreas</h2>
-                <div className="h-px flex-1 bg-slate-200 ml-4"></div>
-            </div>
-            
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-              {CATEGORIES.map((category) => (
-                <div key={category} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
-                  <div className="flex justify-between items-center mb-3 gap-2">
-                    <label className="text-sm font-semibold text-slate-700 truncate flex-1" title={category}>
-                      {category.split('&')[0]} <span className="text-slate-400 font-normal">& {category.split('&')[1]}</span>
-                    </label>
-                    <input
-                      type="number"
-                      min="0"
-                      max="10"
-                      value={scores[category]}
-                      onChange={(e) => handleScoreChange(category, e.target.value)}
-                      onFocus={(e) => e.target.select()}
-                      className={`w-14 h-10 text-center font-bold text-lg rounded-lg border-2 focus:ring-4 transition-all outline-none ${getInputStyles(scores[category])}`}
-                    />
-                  </div>
-                  
-                  <div className="relative w-full h-8 flex items-center">
-                    <input
-                        type="range"
-                        min="0"
-                        max="10"
-                        step="1"
-                        value={scores[category]}
-                        onChange={(e) => handleScoreChange(category, e.target.value)}
-                        style={{ background: getGradient(scores[category]) }}
-                        className="w-full appearance-none focus:outline-none bg-transparent"
-                    />
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        </div>
-
-        {/* Notes Section */}
-        <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 sm:p-8 border border-slate-100">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="p-2 bg-yellow-100 rounded-lg">
-                <RefreshCw className="w-5 h-5 text-yellow-600" />
-            </div>
-            <div>
-                <h2 className="text-lg font-bold text-slate-800">Notas do Momento</h2>
-                <p className="text-xs text-slate-500">Desabafe, escreva metas ou o porquê das notas acima.</p>
-            </div>
-          </div>
-          <textarea
-            value={notes}
-            onChange={(e) => setNotes(e.target.value)}
-            placeholder="Como você está se sentindo hoje? O que aconteceu para você dar essas notas? Escreva livremente..."
-            className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all resize-y text-slate-700 placeholder:text-slate-400"
-          />
-        </div>
-
-        {/* History Section */}
-        {history.length > 0 && (
-            <div className="space-y-4">
-                <div className="flex items-center gap-2 mb-2">
-                    <History className="w-5 h-5 text-slate-400" />
-                    <h2 className="text-xl font-bold text-slate-800">Histórico de Evolução</h2>
+        {/* CUSTOM WHEEL SETUP WIZARD */}
+        {mode === 'custom' && isSettingUpCustom && (
+            <div className="max-w-2xl mx-auto bg-white rounded-3xl shadow-xl p-8 border border-slate-100 animate-in fade-in zoom-in-95 duration-300">
+                <div className="mb-6 text-center">
+                    <div className="w-12 h-12 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4 text-emerald-600">
+                        <Settings className="w-6 h-6" />
+                    </div>
+                    <h2 className="text-2xl font-bold text-slate-800">Crie sua Roda Personalizada</h2>
+                    <p className="text-slate-500 mt-2">Defina as áreas que são importantes para você agora.</p>
                 </div>
 
-                <div className="space-y-3">
-                    {history.map((record) => (
-                        <div key={record.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden transition-all hover:shadow-md">
-                            <div 
-                                onClick={() => setExpandedHistoryId(expandedHistoryId === record.id ? null : record.id)}
-                                className="p-4 flex items-center justify-between cursor-pointer bg-slate-50 hover:bg-white transition-colors"
+                {customStep === 1 ? (
+                    <div className="space-y-6">
+                        <div>
+                            <label className="block text-sm font-semibold text-slate-700 mb-2">Quantas áreas você deseja?</label>
+                            <input 
+                                type="number" 
+                                min="4" 
+                                max="20" 
+                                value={customAreaCount}
+                                onChange={(e) => setCustomAreaCount(parseInt(e.target.value))}
+                                className="w-full text-center text-4xl font-bold p-4 rounded-xl border-2 border-slate-200 focus:border-emerald-500 focus:ring-4 focus:ring-emerald-50 outline-none transition-all"
+                            />
+                            <p className="text-xs text-center text-slate-400 mt-2">Escolha entre 4 e 20 áreas</p>
+                        </div>
+                        <button 
+                            onClick={handleStartCustomSetup}
+                            disabled={customAreaCount < 4 || customAreaCount > 20}
+                            className="w-full py-4 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold text-lg shadow-lg shadow-emerald-200 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        >
+                            Continuar
+                            <ArrowRight className="w-5 h-5" />
+                        </button>
+                    </div>
+                ) : (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[50vh] overflow-y-auto pr-2">
+                            {customAreaNames.map((name, idx) => (
+                                <div key={idx}>
+                                    <label className="block text-xs font-semibold text-slate-400 mb-1">Área {idx + 1}</label>
+                                    <input 
+                                        type="text"
+                                        value={name}
+                                        onChange={(e) => updateCustomName(idx, e.target.value)}
+                                        placeholder={`Nome da área ${idx + 1}`}
+                                        className="w-full p-3 rounded-lg border border-slate-200 focus:border-emerald-500 focus:ring-2 focus:ring-emerald-50 outline-none transition-all"
+                                    />
+                                </div>
+                            ))}
+                        </div>
+                        <div className="flex gap-3">
+                            <button 
+                                onClick={() => setCustomStep(1)}
+                                className="px-6 py-3 bg-slate-100 text-slate-600 font-semibold rounded-xl hover:bg-slate-200 transition-colors"
                             >
-                                <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
-                                    <span className="font-bold text-slate-700 text-sm sm:text-base">{record.formattedDate}</span>
-                                    <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md font-semibold">
-                                        Média: {record.averageScore}
-                                    </span>
-                                </div>
-                                <div className="flex items-center gap-3 text-slate-400">
-                                    {expandedHistoryId === record.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
-                                </div>
-                            </div>
-                            
-                            {expandedHistoryId === record.id && (
-                                <div className="p-4 border-t border-slate-100 bg-white animate-in slide-in-from-top-2">
-                                    <div className="mb-3">
-                                        <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">Resumo da IA:</p>
-                                        <p className="text-sm text-slate-600 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
-                                            "{record.aiResponse.substring(0, 150)}..."
-                                        </p>
-                                        {record.smartGoals && record.smartGoals.length > 0 && (
-                                            <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
-                                                <Zap className="w-3 h-3" />
-                                                Contém {record.smartGoals.length} Metas SMART
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div className="flex flex-wrap gap-2 mt-4">
-                                        <button 
-                                            onClick={() => viewHistoryItem(record)}
-                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
-                                        >
-                                            <Eye className="w-3 h-3" />
-                                            Ver e Editar
-                                        </button>
-                                        <button 
-                                            onClick={() => generatePDF(record)}
-                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-medium transition-colors"
-                                        >
-                                            <Download className="w-3 h-3" />
-                                            Exportar PDF
-                                        </button>
-                                        <button 
-                                            onClick={(e) => deleteHistoryItem(record.id, e)}
-                                            className="text-xs flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-medium transition-colors ml-auto"
-                                        >
-                                            <Trash2 className="w-3 h-3" />
-                                            Excluir
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
+                                Voltar
+                            </button>
+                            <button 
+                                onClick={handleFinishCustomSetup}
+                                className="flex-1 py-3 bg-emerald-500 hover:bg-emerald-600 text-white rounded-xl font-bold shadow-lg shadow-emerald-200 transition-all"
+                            >
+                                Gerar Minha Roda Personalizada
+                            </button>
+                        </div>
+                    </div>
+                )}
+            </div>
+        )}
+
+        {/* MAIN APP CONTENT (Hidden during setup) */}
+        {(!isSettingUpCustom || mode === 'standard') && (
+            <>
+                {/* SABOTAGE ALERT */}
+                {getSabotageMessage() && (
+                    <div className="w-full bg-[#ffebee] border-l-[6px] border-[#d32f2f] rounded-r-xl p-6 shadow-sm flex items-start gap-4 animate-in slide-in-from-top-4 duration-500">
+                    <AlertTriangle className="w-8 h-8 text-[#d32f2f] flex-shrink-0 mt-0.5" />
+                    <p className="text-[#b71c1c] text-lg font-bold leading-snug">
+                        {getSabotageMessage()}
+                    </p>
+                    </div>
+                )}
+
+                {/* Edit Custom Button (Small utility) */}
+                {mode === 'custom' && !isSettingUpCustom && (
+                    <div className="flex justify-end">
+                        <button 
+                            onClick={() => setIsSettingUpCustom(true)}
+                            className="text-xs flex items-center gap-1 text-slate-400 hover:text-emerald-600 transition-colors"
+                        >
+                            <Settings className="w-3 h-3" />
+                            Editar áreas
+                        </button>
+                    </div>
+                )}
+
+                {/* Top Section: Chart & Sliders */}
+                <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 items-start">
+                
+                {/* Chart Card */}
+                <div ref={chartRef} className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 border border-slate-100 flex flex-col items-center justify-center sticky lg:top-24">
+                    <div className="w-full mb-4 flex justify-between items-center px-2">
+                        <h2 className="text-lg font-bold text-slate-700">Visão Geral {mode === 'custom' ? '(Custom)' : ''}</h2>
+                        <span className="text-xs px-2 py-1 bg-slate-100 rounded-full text-slate-500">Hoje</span>
+                    </div>
+                    {/* Pass Active Categories to Chart */}
+                    <WheelChart scores={activeScores} categories={activeCategories} />
+                    <p className="text-center text-xs text-slate-400 mt-4 max-w-xs">
+                        Quanto mais redonda e ampla for sua roda, mais equilibrada está sua vida.
+                    </p>
+                </div>
+
+                {/* Sliders Grid */}
+                <div className="space-y-6">
+                    <div className="flex items-center gap-2 mb-2">
+                        <h2 className="text-xl font-bold text-slate-800">Avalie suas Áreas</h2>
+                        <div className="h-px flex-1 bg-slate-200 ml-4"></div>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    {activeCategories.map((category) => (
+                        <div key={category} className="bg-white p-4 rounded-2xl border border-slate-100 shadow-sm hover:shadow-md transition-shadow">
+                        <div className="flex justify-between items-center mb-3 gap-2">
+                            <label className="text-sm font-semibold text-slate-700 truncate flex-1" title={category}>
+                            {category.includes('&') ? (
+                                <>
+                                    {category.split('&')[0]} <span className="text-slate-400 font-normal">& {category.split('&')[1]}</span>
+                                </>
+                            ) : category}
+                            </label>
+                            <input
+                            type="number"
+                            min="0"
+                            max="10"
+                            value={activeScores[category]}
+                            onChange={(e) => handleScoreChange(category, e.target.value)}
+                            onFocus={(e) => e.target.select()}
+                            className={`w-14 h-10 text-center font-bold text-lg rounded-lg border-2 focus:ring-4 transition-all outline-none ${getInputStyles(activeScores[category])}`}
+                            />
+                        </div>
+                        
+                        <div className="relative w-full h-8 flex items-center">
+                            <input
+                                type="range"
+                                min="0"
+                                max="10"
+                                step="1"
+                                value={activeScores[category]}
+                                onChange={(e) => handleScoreChange(category, e.target.value)}
+                                style={{ background: getGradient(activeScores[category]) }}
+                                className="w-full appearance-none focus:outline-none bg-transparent"
+                            />
+                        </div>
                         </div>
                     ))}
+                    </div>
                 </div>
-            </div>
+                </div>
+
+                {/* Notes Section */}
+                <div className="bg-white rounded-3xl shadow-xl shadow-slate-200/50 p-6 sm:p-8 border border-slate-100">
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="p-2 bg-yellow-100 rounded-lg">
+                        <RefreshCw className="w-5 h-5 text-yellow-600" />
+                    </div>
+                    <div>
+                        <h2 className="text-lg font-bold text-slate-800">Notas do Momento</h2>
+                        <p className="text-xs text-slate-500">Desabafe, escreva metas ou o porquê das notas acima.</p>
+                    </div>
+                </div>
+                <textarea
+                    value={activeNotes}
+                    onChange={(e) => handleNotesChange(e.target.value)}
+                    placeholder="Como você está se sentindo hoje? O que aconteceu para você dar essas notas? Escreva livremente..."
+                    className="w-full h-40 p-4 bg-slate-50 rounded-xl border-0 ring-1 ring-slate-200 focus:ring-2 focus:ring-indigo-500 focus:bg-white transition-all resize-y text-slate-700 placeholder:text-slate-400"
+                />
+                </div>
+
+                {/* History Section */}
+                {history.length > 0 && (
+                    <div className="space-y-4">
+                        <div className="flex items-center gap-2 mb-2">
+                            <History className="w-5 h-5 text-slate-400" />
+                            <h2 className="text-xl font-bold text-slate-800">Histórico de Evolução</h2>
+                        </div>
+
+                        <div className="space-y-3">
+                            {history.map((record) => (
+                                <div key={record.id} className="bg-white border border-slate-200 rounded-xl overflow-hidden transition-all hover:shadow-md">
+                                    <div 
+                                        onClick={() => setExpandedHistoryId(expandedHistoryId === record.id ? null : record.id)}
+                                        className="p-4 flex items-center justify-between cursor-pointer bg-slate-50 hover:bg-white transition-colors"
+                                    >
+                                        <div className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-4">
+                                            <span className="font-bold text-slate-700 text-sm sm:text-base">{record.formattedDate}</span>
+                                            <div className="flex gap-2">
+                                                <span className="text-xs bg-indigo-100 text-indigo-700 px-2 py-1 rounded-md font-semibold">
+                                                    Média: {record.averageScore}
+                                                </span>
+                                                {record.mode === 'custom' && (
+                                                    <span className="text-xs bg-emerald-100 text-emerald-700 px-2 py-1 rounded-md font-semibold">
+                                                        Custom
+                                                    </span>
+                                                )}
+                                            </div>
+                                        </div>
+                                        <div className="flex items-center gap-3 text-slate-400">
+                                            {expandedHistoryId === record.id ? <ChevronUp className="w-4 h-4" /> : <ChevronDown className="w-4 h-4" />}
+                                        </div>
+                                    </div>
+                                    
+                                    {expandedHistoryId === record.id && (
+                                        <div className="p-4 border-t border-slate-100 bg-white animate-in slide-in-from-top-2">
+                                            <div className="mb-3">
+                                                <p className="text-xs font-bold text-slate-400 uppercase tracking-wide mb-1">Resumo da IA:</p>
+                                                <p className="text-sm text-slate-600 line-clamp-2 italic border-l-2 border-indigo-200 pl-3">
+                                                    "{record.aiResponse.substring(0, 150)}..."
+                                                </p>
+                                                {record.smartGoals && record.smartGoals.length > 0 && (
+                                                    <p className="text-xs text-green-600 font-bold mt-2 flex items-center gap-1">
+                                                        <Zap className="w-3 h-3" />
+                                                        Contém {record.smartGoals.length} Metas SMART
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="flex flex-wrap gap-2 mt-4">
+                                                <button 
+                                                    onClick={() => viewHistoryItem(record)}
+                                                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-lg font-medium transition-colors"
+                                                >
+                                                    <Eye className="w-3 h-3" />
+                                                    Ver e Editar
+                                                </button>
+                                                <button 
+                                                    onClick={() => generatePDF(record)}
+                                                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 rounded-lg font-medium transition-colors"
+                                                >
+                                                    <Download className="w-3 h-3" />
+                                                    Exportar PDF
+                                                </button>
+                                                <button 
+                                                    onClick={(e) => deleteHistoryItem(record.id, e)}
+                                                    className="text-xs flex items-center gap-1.5 px-3 py-2 bg-red-50 hover:bg-red-100 text-red-600 rounded-lg font-medium transition-colors ml-auto"
+                                                >
+                                                    <Trash2 className="w-3 h-3" />
+                                                    Excluir
+                                                </button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
+            </>
         )}
       </main>
 
       {/* Floating Action Button (CTA) */}
-      <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-40 pointer-events-none">
-        <button
-          onClick={() => setIsModalOpen(true)}
-          className="pointer-events-auto shadow-2xl shadow-indigo-500/30 bg-slate-900 hover:bg-slate-800 text-white px-6 py-4 rounded-full flex items-center gap-3 transform hover:scale-105 transition-all duration-300 group"
-        >
-          <div className="relative">
-            <Zap className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-pulse" />
-            <div className="absolute inset-0 bg-yellow-400 blur-lg opacity-30"></div>
-          </div>
-          <div className="flex flex-col items-start">
-            <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Pronto?</span>
-            <span className="font-bold text-lg leading-none">FALA NA LATA</span>
-          </div>
-        </button>
-      </div>
+      {(!isSettingUpCustom || mode === 'standard') && (
+        <div className="fixed bottom-6 left-0 right-0 flex justify-center px-4 z-40 pointer-events-none">
+            <button
+            onClick={() => setIsModalOpen(true)}
+            className="pointer-events-auto shadow-2xl shadow-indigo-500/30 bg-slate-900 hover:bg-slate-800 text-white px-6 py-4 rounded-full flex items-center gap-3 transform hover:scale-105 transition-all duration-300 group"
+            >
+            <div className="relative">
+                <Zap className="w-6 h-6 text-yellow-400 fill-yellow-400 animate-pulse" />
+                <div className="absolute inset-0 bg-yellow-400 blur-lg opacity-30"></div>
+            </div>
+            <div className="flex flex-col items-start">
+                <span className="text-xs font-medium text-slate-400 uppercase tracking-wider">Pronto?</span>
+                <span className="font-bold text-lg leading-none">FALA NA LATA</span>
+            </div>
+            </button>
+        </div>
+      )}
 
       <AnalysisModal 
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        scores={scores}
-        notes={notes}
+        scores={activeScores}
+        notes={activeNotes}
+        categories={activeCategories}
         onAnalysisComplete={saveAnalysisToHistory}
         onExportPDF={generatePDF}
         onUpdateRecord={updateHistoryRecord}

@@ -1,3 +1,4 @@
+
 import React from 'react';
 import {
   Radar,
@@ -8,16 +9,16 @@ import {
   ResponsiveContainer,
   Tooltip
 } from 'recharts';
-import { CATEGORIES } from '../types';
 
 interface WheelChartProps {
   scores: Record<string, number>;
+  categories: string[];
 }
 
-const WheelChart: React.FC<WheelChartProps> = ({ scores }) => {
-  const data = CATEGORIES.map((cat) => ({
+const WheelChart: React.FC<WheelChartProps> = ({ scores, categories }) => {
+  const data = categories.map((cat) => ({
     subject: cat,
-    A: scores[cat],
+    A: scores[cat] || 0,
     fullMark: 10,
   }));
 
@@ -25,6 +26,10 @@ const WheelChart: React.FC<WheelChartProps> = ({ scores }) => {
   const formatLabel = (label: string) => {
     if (window.innerWidth < 640 && label.includes('&')) {
       return label.split(' & ')[0];
+    }
+    // Truncate very long custom labels
+    if (label.length > 15) {
+      return label.substring(0, 12) + '...';
     }
     return label;
   };
