@@ -76,7 +76,7 @@ const EmailCaptureModal: React.FC<EmailCaptureModalProps> = ({ isOpen, onSuccess
                   required
                   value={email}
                   onChange={(e) => setEmail(e.target.value)}
-                  className="block w-full pl-10 pr-3 py-3 border border-slate-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all"
+                  className="block w-full pl-10 pr-3 py-3 bg-white text-slate-900 border border-slate-300 rounded-xl focus:ring-indigo-500 focus:border-indigo-500 transition-all placeholder:text-slate-400"
                   placeholder="voce@exemplo.com"
                 />
               </div>

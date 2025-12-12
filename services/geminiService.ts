@@ -25,7 +25,7 @@ export const analyzeWheelOfLife = async (prompt: string): Promise<string> => {
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        systemInstruction: "Você é um coach de desenvolvimento pessoal experiente, direto e 'brutalmente carinhoso'. Seu objetivo é analisar a Roda da Vida do usuário, identificar padrões de sabotagem e dar conselhos práticos. Não use jargões complexos, fale como uma pessoa real e sábia.",
+        systemInstruction: "Você é um coach de alta performance, direto, pragmático e 'brutalmente carinhoso'. Seu foco é quebrar a estagnação com planos de ação reais, não frases motivacionais vazias. O usuário deve terminar de ler sentindo que tem um manual de guerra nas mãos.",
         temperature: 0.7,
       }
     });
@@ -43,7 +43,7 @@ export const generateSmartGoals = async (scores: Record<string, number>, notes: 
     const scoreText = Object.entries(scores).map(([k,v]) => `${k}: ${v}/10`).join('\n');
 
     const prompt = `
-      Atue como um coach especialista em desenvolvimento pessoal com estilo "Fala na Lata": direto, sincero, provocativo e construtivo.
+      Atue como um coach especialista em desenvolvimento pessoal com estilo "Fala na Lata".
       
       Sua missão: Gerar metas SMART para TODAS as áreas da Roda da Vida listadas abaixo.
       
@@ -52,21 +52,20 @@ export const generateSmartGoals = async (scores: Record<string, number>, notes: 
       
       Notas do usuário: ${notes || "Nenhuma nota fornecida."}
 
-      Instruções Estritas de Estilo:
-      - Tom: Direto, firme, um pouco provocativo. Tire o usuário da estagnação. Não use frases fofas ou motivacionais genéricas.
-      - Objetivo: A meta deve ser simples, prática, mínima (micro-hábito), mas impossível de ignorar. Foco em mover a nota de X para Y em 30 dias.
-      - Formato Mental: Use a metodologia SMART (Específico, Mensurável, Alcançável, Relevante, Temporal) para criar a meta.
-      
-      Exemplos de Estilo (Referência):
-      - "Você está no 5/10 porque não se mexe. Então sua meta é mover o corpo 10 minutos por dia por 30 dias."
-      - "Se nem você sabe o que sente, como quer mudar? Registre 1 emoção por dia."
-      - "Relação sem alimento morre. Mande uma mensagem por semana para alguém importante."
+      INSTRUÇÕES ESTRITAS:
+      1. Tom: Direto, firme, um pouco provocativo. Tire o usuário do piloto automático.
+      2. Objetivo da Meta: Mover a nota de X para X+1 em 30 dias (ex: 5/10 para 6/10). Nada de metas heróicas, apenas micro-hábitos impossíveis de ignorar.
+      3. Raciocínio (Mental): Use a estrutura S.M.A.R.T (Específico, Mensurável, Alcançável, Relevante, Temporal).
+      4. Saída: Apenas a frase final resumida, curta e objetiva.
 
-      SAÍDA OBRIGATÓRIA:
-      Retorne APENAS um JSON válido no seguinte formato (sem markdown, sem explicações):
+      Exemplos de Estilo:
+      - "Você está no 5/10 porque não se mexe. Caminhe 10 minutos todo dia sem desculpas."
+      - "Relação morre sem atenção. Mande uma mensagem genuína toda terça-feira."
+
+      SAÍDA OBRIGATÓRIA (JSON ARRAY):
       [
-        { "area": "Nome da Área", "goal": "A meta resumida em uma frase objetiva seguindo o estilo acima" },
-        ... (uma para cada área listada)
+        { "area": "Nome da Área", "goal": "A meta resumida em uma frase objetiva" },
+        ...
       ]
     `;
 
