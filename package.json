@@ -15,7 +15,9 @@
     "react": "^19.2.1",
     "recharts": "^3.5.1",
     "jspdf": "^2.5.1",
-    "html2canvas": "^1.4.1"
+    "html2canvas": "^1.4.1",
+    "@stripe/stripe-js": "2.4.0",
+    "@stripe/react-stripe-js": "2.4.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

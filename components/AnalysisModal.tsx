@@ -2,7 +2,9 @@
 import React, { useState } from 'react';
 import { AnalysisRecord, SmartGoal } from '../types';
 import { analyzeWheelOfLife, generateSmartGoals } from '../services/geminiService';
-import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight } from 'lucide-react';
+import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight, Lock } from 'lucide-react';
+import PremiumUpsell from './PremiumUpsell';
+import { useMountTransition } from './VisualEffects';
 
 interface AnalysisModalProps {
   isOpen: boolean;
@@ -10,9 +12,11 @@ interface AnalysisModalProps {
   scores: Record<string, number>;
   notes: string;
   categories: string[];
-  onAnalysisComplete: (result: string) => AnalysisRecord; // Callback to parent to save history
+  onAnalysisComplete: (result: string) => AnalysisRecord; 
   onExportPDF: (record: AnalysisRecord) => void;
   onUpdateRecord: (id: string, updates: Partial<AnalysisRecord>) => void;
+  isPremium: boolean;
+  onTriggerPremium: () => void;
 }
 
 const AnalysisModal: React.FC<AnalysisModalProps> = ({ 
@@ -23,7 +27,9 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
   categories,
   onAnalysisComplete,
   onExportPDF,
-  onUpdateRecord
+  onUpdateRecord,
+  isPremium,
+  onTriggerPremium
 }) => {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
@@ -35,7 +41,10 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
   const [smartGoals, setSmartGoals] = useState<SmartGoal[] | null>(null);
   const [copiedGoalIndex, setCopiedGoalIndex] = useState<number | null>(null);
 
-  if (!isOpen) return null;
+  // Animation Hook (400ms match the tailwind transition duration)
+  const { shouldRender, transitionClasses } = useMountTransition(isOpen, 400);
+
+  if (!shouldRender) return null;
 
   const generatePrompt = () => {
     let scoreText = '';
@@ -93,22 +102,17 @@ Me diz:
       const goals = await generateSmartGoals(scores, notes);
       setSmartGoals(goals);
       
-      // Save goals to history
       if (currentRecord) {
         onUpdateRecord(currentRecord.id, { smartGoals: goals });
-        // Update local record state so PDF export catches it immediately
         setCurrentRecord(prev => prev ? ({ ...prev, smartGoals: goals }) : null);
       }
-
     } catch (error) {
-      console.error(error);
-      alert("Erro ao gerar metas. Tente novamente.");
+      console.error("Erro ao gerar metas SMART:", error);
     } finally {
       setIsGeneratingSmart(false);
     }
   };
 
-  // Convert markdown-style response to simple paragraphs for safe rendering
   const renderAnalysis = (text: string) => {
     return text.split('\n').map((line, idx) => {
         if (line.startsWith('- ') || line.startsWith('* ')) {
@@ -123,8 +127,14 @@ Me diz:
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm animate-fade-in">
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col">
+    <div 
+      className={`fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-900/60 backdrop-blur-sm transition-opacity duration-400 ease-luxury ${
+        isOpen ? 'opacity-100' : 'opacity-0'
+      }`}
+    >
+      <div 
+        className={`bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto flex flex-col transform transition-all duration-400 ease-luxury ${transitionClasses}`}
+      >
         
         {/* Header */}
         <div className="p-6 border-b border-slate-100 flex justify-between items-center sticky top-0 bg-white z-10">
@@ -144,73 +154,101 @@ Me diz:
           
           {/* Result Area */}
           {analysisResult ? (
-            <div className="space-y-6">
+            <div className="space-y-6 animate-fade-in">
+              
+              {/* Basic Analysis (Always Free) */}
               <div className="bg-indigo-50/50 rounded-xl p-6 border border-indigo-100">
-                <h3 className="text-lg font-semibold text-indigo-900 mb-4">Análise da IA:</h3>
+                <h3 className="text-lg font-semibold text-indigo-900 mb-4">Análise Resumida da IA:</h3>
                 <div className="prose prose-indigo max-w-none text-sm sm:text-base">
                   {renderAnalysis(analysisResult)}
                 </div>
               </div>
 
+              {/* PREMIUM UPSELL BLOCK */}
+              {!isPremium && <PremiumUpsell onUpgrade={onTriggerPremium} />}
+
               {/* SMART Goals Section */}
-              {!smartGoals ? (
-                <button
-                  onClick={handleSmartGoals}
-                  disabled={isGeneratingSmart}
-                  className="w-full py-4 bg-slate-900 text-white rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group"
-                >
-                  {isGeneratingSmart ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin text-yellow-400" />
-                      <span className="font-semibold">Criando estratégia...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Target className="w-6 h-6 text-yellow-400" />
-                      <span className="font-bold text-lg">Gerar minhas Metas SMART agora</span>
-                      <ArrowRight className="w-5 h-5 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all text-slate-400" />
-                    </>
-                  )}
-                </button>
-              ) : (
-                <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Target className="w-5 h-5 text-indigo-600" />
-                    <h3 className="text-lg font-bold text-slate-800">Suas Metas SMART Prioritárias</h3>
-                  </div>
-                  
-                  <div className="grid gap-4">
-                    {smartGoals.map((item, idx) => (
-                      <div key={idx} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow relative group">
-                         <div className="flex justify-between items-start mb-2">
-                            <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-xs font-bold rounded uppercase tracking-wider">
-                              {item.area}
-                            </span>
-                            <button 
-                              onClick={() => handleCopyGoal(item.goal, idx)}
-                              className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
-                              title="Copiar meta"
-                            >
-                               {copiedGoalIndex === idx ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
-                            </button>
-                         </div>
-                         <p className="text-slate-700 font-medium leading-relaxed">
-                           {item.goal}
-                         </p>
-                      </div>
-                    ))}
-                  </div>
-                </div>
+              {isPremium && (
+                <>
+                {!smartGoals ? (
+                    <button
+                    onClick={handleSmartGoals}
+                    disabled={isGeneratingSmart}
+                    className="w-full py-4 bg-slate-900 text-white rounded-xl shadow-lg shadow-slate-200 hover:bg-slate-800 transition-all flex items-center justify-center gap-3 group"
+                    >
+                    {isGeneratingSmart ? (
+                        <>
+                        <Loader2 className="w-5 h-5 animate-spin text-yellow-400" />
+                        <span className="font-semibold">Criando estratégia...</span>
+                        </>
+                    ) : (
+                        <>
+                        <Target className="w-6 h-6 text-yellow-400" />
+                        <span className="font-bold text-lg">Gerar Metas SMART (Todas as Áreas)</span>
+                        <ArrowRight className="w-5 h-5 opacity-0 -ml-4 group-hover:opacity-100 group-hover:ml-0 transition-all text-slate-400" />
+                        </>
+                    )}
+                    </button>
+                ) : (
+                    <div className="space-y-4 animate-in fade-in slide-in-from-bottom-4 duration-500">
+                    <div className="flex items-center gap-2 mb-2">
+                        <Target className="w-5 h-5 text-indigo-600" />
+                        <h3 className="text-lg font-bold text-slate-800">Suas Metas SMART (Plano de Ação)</h3>
+                    </div>
+                    
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        {smartGoals.map((item, idx) => (
+                        <div key={idx} className="bg-white border border-slate-200 rounded-xl p-5 shadow-sm hover:shadow-md transition-shadow relative group h-full flex flex-col">
+                            <div className="flex justify-between items-start mb-2">
+                                <span className="inline-block px-2 py-1 bg-indigo-50 text-indigo-700 text-[10px] font-bold rounded uppercase tracking-wider truncate max-w-[85%]">
+                                {item.area}
+                                </span>
+                                <button 
+                                onClick={() => handleCopyGoal(item.goal, idx)}
+                                className="text-slate-400 hover:text-indigo-600 transition-colors p-1"
+                                title="Copiar meta"
+                                >
+                                {copiedGoalIndex === idx ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4" />}
+                                </button>
+                            </div>
+                            <p className="text-slate-700 font-medium leading-relaxed text-sm flex-1">
+                            {item.goal}
+                            </p>
+                        </div>
+                        ))}
+                    </div>
+                    </div>
+                )}
+                </>
               )}
               
               {/* Footer Buttons */}
               <div className="flex gap-3 pt-4 border-t border-slate-100">
                  <button 
-                  onClick={() => currentRecord && onExportPDF(currentRecord)}
-                  className="flex-1 bg-white border border-slate-200 text-slate-700 hover:bg-slate-50 px-4 py-2.5 rounded-xl font-medium transition-colors flex items-center justify-center gap-2"
+                  onClick={() => {
+                      if (isPremium) {
+                        currentRecord && onExportPDF(currentRecord)
+                      } else {
+                        onTriggerPremium()
+                      }
+                  }}
+                  className={`flex-1 flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl font-medium transition-all ${
+                      isPremium 
+                      ? 'bg-white border border-slate-200 text-slate-700 hover:bg-slate-50' 
+                      : 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md shadow-indigo-200'
+                  }`}
                 >
-                  <Download className="w-4 h-4" />
-                  Exportar PDF
+                  {isPremium ? (
+                      <>
+                        <Download className="w-4 h-4" />
+                        Exportar PDF
+                      </>
+                  ) : (
+                      <>
+                        <Lock className="w-4 h-4" />
+                        Baixar Relatório Completo (PDF)
+                      </>
+                  )}
                 </button>
                  <button 
                   onClick={() => {
@@ -218,32 +256,24 @@ Me diz:
                       setCurrentRecord(null);
                       setSmartGoals(null);
                   }}
-                  className="text-indigo-600 px-4 py-2 text-sm font-medium hover:underline"
+                  className="text-slate-500 px-4 py-2 text-sm font-medium hover:underline hover:text-indigo-600"
                 >
-                  Refazer Análise
+                  Refazer
                 </button>
               </div>
             </div>
           ) : (
             <>
               <p className="text-slate-600 leading-relaxed">
-                Aqui está o prompt gerado com base nos seus dados atuais. Você pode copiar para usar no seu assistente de IA preferido (ChatGPT, Claude, Grok) ou pedir uma análise rápida aqui mesmo.
+                Nossa IA vai analisar seus padrões de sabotagem e identificar onde você precisa focar sua energia agora.
               </p>
-
-              <div className="relative group">
-                <textarea 
-                  readOnly
-                  value={promptText}
-                  className="w-full h-48 p-4 text-xs sm:text-sm bg-slate-50 border border-slate-200 rounded-xl font-mono text-slate-600 focus:outline-none resize-none"
-                />
-                <button
-                    onClick={handleCopy}
-                    className="absolute top-2 right-2 bg-white p-2 rounded-lg border border-slate-200 shadow-sm hover:bg-slate-50 transition-all flex items-center gap-2"
-                >
-                    {copied ? <Check className="w-4 h-4 text-green-500" /> : <Copy className="w-4 h-4 text-slate-500" />}
-                    <span className="text-xs font-medium text-slate-700">{copied ? 'Copiado!' : 'Copiar'}</span>
-                </button>
-              </div>
+              
+              {!isPremium && (
+                 <div className="bg-yellow-50 border border-yellow-100 rounded-lg p-3 text-xs text-yellow-800 flex gap-2">
+                     <Sparkles className="w-4 h-4 flex-shrink-0" />
+                     <span>Obtenha a análise gratuita agora. O plano detalhado pode ser desbloqueado depois.</span>
+                 </div>
+              )}
             </>
           )}
         </div>
@@ -252,25 +282,19 @@ Me diz:
         {!analysisResult && (
             <div className="p-6 border-t border-slate-100 bg-slate-50 flex flex-col sm:flex-row gap-3">
             <button
-                onClick={handleCopy}
-                className="flex-1 px-4 py-3 bg-white border border-slate-200 text-slate-700 font-semibold rounded-xl hover:bg-slate-50 transition-colors shadow-sm"
-            >
-                Copiar Prompt
-            </button>
-            <button
                 onClick={handleAnalyze}
                 disabled={isAnalyzing}
-                className="flex-1 px-4 py-3 bg-gradient-to-r from-indigo-600 to-violet-600 text-white font-semibold rounded-xl hover:opacity-90 transition-all shadow-md shadow-indigo-200 flex items-center justify-center gap-2"
+                className="flex-1 px-4 py-3 bg-gradient-to-r from-slate-900 to-slate-800 text-white font-semibold rounded-xl hover:opacity-90 transition-all shadow-md shadow-slate-200 flex items-center justify-center gap-2"
             >
                 {isAnalyzing ? (
                 <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    Analisando...
+                    Gerando Análise...
                 </>
                 ) : (
                 <>
-                    <Sparkles className="w-5 h-5" />
-                    Analisar Agora (IA)
+                    <Sparkles className="w-5 h-5 text-yellow-400" />
+                    Gerar Minha Análise
                 </>
                 )}
             </button>

@@ -34,29 +34,77 @@ const WheelChart: React.FC<WheelChartProps> = ({ scores, categories }) => {
     return label;
   };
 
+  const CustomTooltip = ({ active, payload, label }: any) => {
+    if (active && payload && payload.length) {
+      return (
+        <div className="bg-white/90 backdrop-blur-md p-3 border border-indigo-100 rounded-xl shadow-xl shadow-indigo-500/10">
+          <p className="font-bold text-slate-800 text-sm mb-1">{label}</p>
+          <div className="flex items-center gap-2">
+            <span className="w-2 h-2 rounded-full bg-indigo-500"></span>
+            <p className="text-indigo-600 font-bold text-lg">
+              {payload[0].value}<span className="text-slate-400 text-xs font-normal">/10</span>
+            </p>
+          </div>
+        </div>
+      );
+    }
+    return null;
+  };
+
   return (
-    <div className="w-full h-[300px] sm:h-[400px] flex justify-center items-center font-sans">
-      <ResponsiveContainer width="100%" height="100%">
+    <div className="w-full h-[300px] sm:h-[400px] block font-sans relative z-10 min-w-0">
+      <ResponsiveContainer width="100%" height="100%" minWidth={0}>
         <RadarChart cx="50%" cy="50%" outerRadius="75%" data={data}>
-          <PolarGrid stroke="#e2e8f0" />
+          <defs>
+            <linearGradient id="radarFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="5%" stopColor="#6366f1" stopOpacity={0.5}/>
+              <stop offset="95%" stopColor="#818cf8" stopOpacity={0.1}/>
+            </linearGradient>
+            <filter id="glow" height="130%">
+              <feGaussianBlur in="SourceAlpha" stdDeviation="3"/> 
+              <feOffset dx="0" dy="0" result="offsetblur"/>
+              <feComponentTransfer>
+                <feFuncA type="linear" slope="0.5"/>
+              </feComponentTransfer>
+              <feMerge> 
+                <feMergeNode/>
+                <feMergeNode in="SourceGraphic"/> 
+              </feMerge>
+            </filter>
+          </defs>
+          
+          <PolarGrid 
+            gridType="polygon" 
+            stroke="#e2e8f0" 
+            strokeDasharray="4 4" 
+          />
+          
           <PolarAngleAxis 
             dataKey="subject" 
-            tick={{ fill: '#64748b', fontSize: 11, fontWeight: 500 }}
+            tick={{ fill: '#475569', fontSize: 11, fontWeight: 600 }}
             tickFormatter={formatLabel}
           />
-          <PolarRadiusAxis angle={30} domain={[0, 10]} tick={false} axisLine={false} />
+          
+          <PolarRadiusAxis 
+            angle={90} 
+            domain={[0, 10]} 
+            tick={false} 
+            axisLine={false} 
+          />
+          
           <Radar
             name="Minha Roda"
             dataKey="A"
-            stroke="#6366f1"
+            stroke="#4f46e5"
             strokeWidth={3}
-            fill="#818cf8"
-            fillOpacity={0.4}
+            fill="url(#radarFill)"
+            fillOpacity={1}
+            isAnimationActive={true}
+            animationDuration={1000}
+            animationEasing="ease-out"
           />
-          <Tooltip 
-            contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
-            itemStyle={{ color: '#4f46e5', fontWeight: 'bold' }}
-          />
+          
+          <Tooltip content={<CustomTooltip />} cursor={false} />
         </RadarChart>
       </ResponsiveContainer>
     </div>
