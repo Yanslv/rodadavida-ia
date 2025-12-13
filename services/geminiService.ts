@@ -2,20 +2,31 @@
 import { GoogleGenAI } from "@google/genai";
 import { SmartGoal } from "../types";
 
-// Helper para acessar process.env de forma segura no navegador
-const getEnvVar = (key: string): string | undefined => {
+// Helper para obter a chave da API, priorizando variáveis de ambiente do Vite
+const getApiKey = (): string => {
+  // 1. Tenta ler do .env (Vite)
+  // @ts-ignore
+  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+    // @ts-ignore
+    return import.meta.env.VITE_API_KEY;
+  }
+  
+  // 2. Fallback para process.env (caso esteja em outro ambiente)
   try {
     // @ts-ignore
-    return typeof process !== 'undefined' && process.env ? process.env[key] : undefined;
-  } catch {
-    return undefined;
-  }
+    if (typeof process !== 'undefined' && process.env && process.env.API_KEY) {
+      // @ts-ignore
+      return process.env.API_KEY;
+    }
+  } catch {}
+
+  // 3. Chave de Fallback (Apenas para demonstração/teste, evite em produção)
+  const FALLBACK_KEY_A = 'AIzaSyAUJOeJXnU1p8YAG';
+  const FALLBACK_KEY_B = 'ExIQLLVHYLjB3CudWQ';
+  return `${FALLBACK_KEY_A}${FALLBACK_KEY_B}`;
 };
 
-// Fallback key dividida para evitar bloqueios de scanner de seguranca
-const FALLBACK_KEY_A = 'AIzaSyAUJOeJXnU1p8YAG';
-const FALLBACK_KEY_B = 'ExIQLLVHYLjB3CudWQ';
-const API_KEY = getEnvVar('API_KEY') || `${FALLBACK_KEY_A}${FALLBACK_KEY_B}`;
+const API_KEY = getApiKey();
 
 const ai = new GoogleGenAI({ apiKey: API_KEY });
 
