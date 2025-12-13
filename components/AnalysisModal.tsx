@@ -2,7 +2,7 @@
 import React, { useState } from 'react';
 import { AnalysisRecord, SmartGoal } from '../types';
 import { analyzeWheelOfLife, generateSmartGoals } from '../services/geminiService';
-import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight, Lock } from 'lucide-react';
+import { Loader2, Copy, Check, Sparkles, X, Download, Target, ArrowRight, Lock, Share2, MessageCircle, Smartphone } from 'lucide-react';
 import PremiumUpsell from './PremiumUpsell';
 import { useMountTransition } from './VisualEffects';
 import jsPDF from 'jspdf';
@@ -36,17 +36,41 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResult, setAnalysisResult] = useState<string | null>(null);
   const [currentRecord, setCurrentRecord] = useState<AnalysisRecord | null>(null);
-  const [copied, setCopied] = useState(false);
   
   // SMART Goals State
   const [isGeneratingSmart, setIsGeneratingSmart] = useState(false);
   const [smartGoals, setSmartGoals] = useState<SmartGoal[] | null>(null);
   const [copiedGoalIndex, setCopiedGoalIndex] = useState<number | null>(null);
 
+  // Social Share State
+  const [showShareMenu, setShowShareMenu] = useState(false);
+  const [copiedShareIndex, setCopiedShareIndex] = useState<number | null>(null);
+
   // Animation Hook (400ms match the tailwind transition duration)
   const { shouldRender, transitionClasses } = useMountTransition(isOpen, 400);
 
   if (!shouldRender) return null;
+
+  const shareOptions = [
+    {
+      type: 'funny',
+      label: '🤡 Rir pra não chorar',
+      color: 'bg-pink-50 border-pink-200 text-pink-700',
+      text: "Minha vida não tá girando, tá capotando. 🤡 Mas pelo menos o gráfico ficou bonito.\n\nDescobre o tamanho do teu tombo aqui 😂👇\nAcesse sua Roda da Vida: google.com.br"
+    },
+    {
+      type: 'hard',
+      label: '🔥 Tapa na cara',
+      color: 'bg-slate-50 border-slate-200 text-slate-800',
+      text: "A mentira que a gente conta pra si mesmo acaba quando o gráfico aparece. A realidade bateu e doeu. 👊\n\nTem coragem de ver a verdade? 👇\nAcesse sua Roda da Vida: google.com.br"
+    },
+    {
+      type: 'motivational',
+      label: '✨ Clareza Total',
+      color: 'bg-indigo-50 border-indigo-200 text-indigo-700',
+      text: "Parei de chutar o que estava errado. Agora eu tenho um mapa e sei exatamente onde focar. Clareza é poder. 🗺️\n\nFaz tua análise gratuita também 👇\nAcesse sua Roda da Vida: google.com.br"
+    }
+  ];
 
   const generatePrompt = () => {
     let scoreText = '';
@@ -97,6 +121,12 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
     navigator.clipboard.writeText(text);
     setCopiedGoalIndex(index);
     setTimeout(() => setCopiedGoalIndex(null), 2000);
+  };
+
+  const handleCopyShare = (text: string, index: number) => {
+    navigator.clipboard.writeText(text);
+    setCopiedShareIndex(index);
+    setTimeout(() => setCopiedShareIndex(null), 2000);
   };
 
   const handleAnalyze = async () => {
@@ -183,6 +213,39 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
           {analysisResult ? (
             <div className="space-y-6 animate-fade-in">
               
+              {/* Share Menu Overlay */}
+              {showShareMenu && (
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-6 animate-in slide-in-from-top-4 mb-6 relative">
+                   <button 
+                    onClick={() => setShowShareMenu(false)}
+                    className="absolute top-2 right-2 p-1 text-slate-400 hover:text-slate-600"
+                   >
+                     <X className="w-4 h-4" />
+                   </button>
+                   <h3 className="text-lg font-bold text-slate-800 mb-4 flex items-center gap-2">
+                     <Smartphone className="w-5 h-5 text-green-600" />
+                     Escolha seu Status do WhatsApp
+                   </h3>
+                   <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {shareOptions.map((opt, idx) => (
+                        <div key={idx} className={`rounded-xl p-4 border flex flex-col ${opt.color} hover:shadow-md transition-all`}>
+                           <span className="text-xs font-bold uppercase tracking-wider opacity-80 mb-2">{opt.label}</span>
+                           <p className="text-sm font-medium whitespace-pre-line flex-1 mb-4 leading-relaxed">
+                             {opt.text}
+                           </p>
+                           <button 
+                            onClick={() => handleCopyShare(opt.text, idx)}
+                            className="w-full py-2 bg-white/50 hover:bg-white text-current rounded-lg text-xs font-bold flex items-center justify-center gap-2 transition-colors border border-current/10"
+                           >
+                             {copiedShareIndex === idx ? <Check className="w-3 h-3" /> : <Copy className="w-3 h-3" />}
+                             {copiedShareIndex === idx ? 'Copiado!' : 'Copiar Texto'}
+                           </button>
+                        </div>
+                      ))}
+                   </div>
+                </div>
+              )}
+
               {/* Main Analysis Report */}
               <div className="bg-white rounded-xl p-6 sm:p-8 border border-indigo-100 shadow-sm">
                 <div className="prose prose-indigo max-w-none text-sm sm:text-base">
@@ -252,7 +315,16 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
               )}
               
               {/* Footer Buttons */}
-              <div className="flex gap-3 pt-6 border-t border-slate-100 mt-6">
+              <div className="flex flex-col sm:flex-row gap-3 pt-6 border-t border-slate-100 mt-6">
+                 {/* Share Button (New) */}
+                 <button 
+                   onClick={() => setShowShareMenu(!showShareMenu)}
+                   className="flex items-center justify-center gap-2 px-6 py-3 bg-green-500 text-white hover:bg-green-600 shadow-lg shadow-green-200 rounded-xl font-bold transition-all sm:w-auto w-full"
+                 >
+                   <MessageCircle className="w-5 h-5" />
+                   Gerar Status WhatsApp
+                 </button>
+
                  <button 
                   onClick={() => {
                       if (isPremium) {
@@ -270,12 +342,12 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
                   {isPremium ? (
                       <>
                         <Download className="w-5 h-5" />
-                        Baixar Manual (PDF)
+                        Baixar PDF
                       </>
                   ) : (
                       <>
                         <Lock className="w-4 h-4" />
-                        Desbloquear PDF Completo
+                        Baixar PDF
                       </>
                   )}
                 </button>
@@ -284,8 +356,9 @@ const AnalysisModal: React.FC<AnalysisModalProps> = ({
                       setAnalysisResult(null);
                       setCurrentRecord(null);
                       setSmartGoals(null);
+                      setShowShareMenu(false);
                   }}
-                  className="text-slate-500 px-6 py-3 text-sm font-medium hover:bg-slate-50 rounded-xl transition-colors"
+                  className="text-slate-500 px-6 py-3 text-sm font-medium hover:bg-slate-50 rounded-xl transition-colors sm:w-auto w-full"
                 >
                   Refazer
                 </button>
