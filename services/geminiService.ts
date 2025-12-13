@@ -35,8 +35,14 @@ const ai = new GoogleGenAI({ apiKey: API_KEY });
 
 export const analyzeWheelOfLife = async (prompt: string): Promise<string> => {
   try {
+    console.log('Tentando chamar Gemini API...', {
+      apiKeyPresent: !!API_KEY,
+      apiKeyPrefix: API_KEY ? API_KEY.substring(0, 10) : 'não definida',
+      model: 'gemini-1.5-flash',
+    });
+
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
         systemInstruction:
@@ -46,9 +52,16 @@ export const analyzeWheelOfLife = async (prompt: string): Promise<string> => {
     });
 
     return response.text || 'Não foi possível gerar uma análise no momento.';
-  } catch (error) {
+  } catch (error: any) {
     console.error('Erro ao chamar Gemini:', error);
-    throw new Error('Falha na conexão com a IA.');
+    const errorMessage =
+      error?.message || error?.toString() || 'Erro desconhecido';
+    console.error('Detalhes do erro:', {
+      message: errorMessage,
+      apiKey: API_KEY ? `${API_KEY.substring(0, 10)}...` : 'não definida',
+      model: 'gemini-1.5-flash',
+    });
+    throw new Error(`Falha na conexão com a IA: ${errorMessage}`);
   }
 };
 
@@ -90,7 +103,7 @@ export const generateSmartGoals = async (
     `;
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-1.5-flash',
       contents: prompt,
       config: {
         responseMimeType: 'application/json',
