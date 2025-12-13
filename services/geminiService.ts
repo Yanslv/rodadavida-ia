@@ -1,16 +1,19 @@
-
-import { GoogleGenAI } from "@google/genai";
-import { SmartGoal } from "../types";
+import { GoogleGenAI } from '@google/genai';
+import { SmartGoal } from '../types';
 
 // Helper para obter a chave da API, priorizando variáveis de ambiente do Vite
 const getApiKey = (): string => {
   // 1. Tenta ler do .env (Vite)
   // @ts-ignore
-  if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env.VITE_API_KEY) {
+  if (
+    typeof import.meta !== 'undefined' &&
+    import.meta.env &&
+    import.meta.env.VITE_API_KEY
+  ) {
     // @ts-ignore
     return import.meta.env.VITE_API_KEY;
   }
-  
+
   // 2. Fallback para process.env (caso esteja em outro ambiente)
   try {
     // @ts-ignore
@@ -36,22 +39,28 @@ export const analyzeWheelOfLife = async (prompt: string): Promise<string> => {
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        systemInstruction: "Você é um coach de alta performance, direto, pragmático e 'brutalmente carinhoso'. Seu foco é quebrar a estagnação com planos de ação reais, não frases motivacionais vazias. O usuário deve terminar de ler sentindo que tem um manual de guerra nas mãos.",
+        systemInstruction:
+          "Você é um coach de alta performance, direto, pragmático e 'brutalmente carinhoso'. Seu foco é quebrar a estagnação com planos de ação reais, não frases motivacionais vazias. O usuário deve terminar de ler sentindo que tem um manual de guerra nas mãos.",
         temperature: 0.7,
-      }
+      },
     });
 
-    return response.text || "Não foi possível gerar uma análise no momento.";
+    return response.text || 'Não foi possível gerar uma análise no momento.';
   } catch (error) {
-    console.error("Erro ao chamar Gemini:", error);
-    throw new Error("Falha na conexão com a IA.");
+    console.error('Erro ao chamar Gemini:', error);
+    throw new Error('Falha na conexão com a IA.');
   }
 };
 
-export const generateSmartGoals = async (scores: Record<string, number>, notes: string): Promise<SmartGoal[]> => {
+export const generateSmartGoals = async (
+  scores: Record<string, number>,
+  notes: string
+): Promise<SmartGoal[]> => {
   try {
     // Preparing data for all areas
-    const scoreText = Object.entries(scores).map(([k,v]) => `${k}: ${v}/10`).join('\n');
+    const scoreText = Object.entries(scores)
+      .map(([k, v]) => `${k}: ${v}/10`)
+      .join('\n');
 
     const prompt = `
       Atue como um coach especialista em desenvolvimento pessoal com estilo "Fala na Lata".
@@ -61,7 +70,7 @@ export const generateSmartGoals = async (scores: Record<string, number>, notes: 
       Dados do Usuário:
       ${scoreText}
       
-      Notas do usuário: ${notes || "Nenhuma nota fornecida."}
+      Notas do usuário: ${notes || 'Nenhuma nota fornecida.'}
 
       INSTRUÇÕES ESTRITAS:
       1. Tom: Direto, firme, um pouco provocativo. Tire o usuário do piloto automático.
@@ -84,19 +93,21 @@ export const generateSmartGoals = async (scores: Record<string, number>, notes: 
       model: 'gemini-2.5-flash',
       contents: prompt,
       config: {
-        responseMimeType: "application/json"
-      }
+        responseMimeType: 'application/json',
+      },
     });
 
-    const text = response.text || "[]";
-    
-    // Clean potential markdown code blocks if the model ignores the mimeType
-    const cleanJson = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    return JSON.parse(cleanJson);
+    const text = response.text || '[]';
 
+    // Clean potential markdown code blocks if the model ignores the mimeType
+    const cleanJson = text
+      .replace(/```json/g, '')
+      .replace(/```/g, '')
+      .trim();
+
+    return JSON.parse(cleanJson);
   } catch (error) {
-    console.error("Erro ao gerar metas SMART:", error);
-    throw new Error("Não foi possível gerar as metas agora.");
+    console.error('Erro ao gerar metas SMART:', error);
+    throw new Error('Não foi possível gerar as metas agora.');
   }
 };
